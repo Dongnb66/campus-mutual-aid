@@ -4,8 +4,10 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import db, { getUser, getPostAuthor, addNotification, changeCredit, incCompleted } from './src/db.js';
-import { register, login, authMiddleware } from './src/auth.js';
+import db, { getUser, getPostAuthor, addNotification, changeCredit, incCompleted, claimPostAtomic, deleteUserRefreshTokens, getOpsStats, getIdentities, createVerifyCode, checkVerifyCode } from './src/db.js';
+import { register, login, authMiddleware, refreshAccessToken, logout, requireRole, phoneRegister, phoneLogin, oauthLogin, bindCurrentUser, bindContact } from './src/auth.js';
+import { sendVerifyCode, detectChannel, channelStatus } from './src/verify.js';
+import { cache, getOrSet } from './src/cache.js';
 import { routeIntent, guidePost, searchPosts, matchPosts, createPost, CATEGORIES } from './src/agents.js';
 import { chat } from './src/llm.js';
 
@@ -14,6 +16,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// 运营维护：结构化请求日志（方法 / 路径 / 状态码 / 耗时）
+const BOOT_TIME = Date.now();
+app.use((req, res, next) => {
+  const t = Date.now();
+  res.on('finish', () => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} -> ${res.statusCode} (${Date.now() - t}ms)`);
+  });
+  next();
+});
 
 // 帖子 + 作者信息 + 标签
 function postView(id) {
@@ -40,6 +52,86 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json(u ? { ok: true, user: u } : { ok: false, error: '用户不存在' });
 });
 
+// 用 refresh token 换取新的 access token（双令牌刷新，避免频繁重新登录）
+app.post('/api/auth/refresh', (req, res) => {
+  try { res.json({ ok: true, ...refreshAccessToken(req.body.refreshToken) }); }
+  catch (e) { res.status(401).json({ ok: false, error: e.message }); }
+});
+
+// 登出：吊销当前 refresh token
+app.post('/api/auth/logout', (req, res) => {
+  try { res.json(logout(req.body.refreshToken)); }
+  catch { res.json({ ok: true }); }
+});
+
+/* ============ 手机号 / 第三方登录 / 绑定 ============ */
+app.post('/api/auth/phone/register', (req, res) => {
+  try { res.json(phoneRegister(req.body)); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.post('/api/auth/phone/login', (req, res) => {
+  try { res.json(phoneLogin(req.body)); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.get('/api/auth/:provider/callback', async (req, res) => {
+  const provider = req.params.provider;
+  if (provider !== 'wechat' && provider !== 'qq') return res.status(400).json({ ok: false, error: '不支持的第三方' });
+  try { res.json(await oauthLogin(provider, req.query.code)); }
+  catch (e) { res.status(401).json({ ok: false, error: e.message }); }
+});
+app.post('/api/auth/bind', authMiddleware, (req, res) => {
+  try { res.json(bindCurrentUser(req.user.id, req.body.provider, req.body.externalId)); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.get('/api/auth/me/identities', authMiddleware, (req, res) => {
+  res.json({ ok: true, identities: getIdentities(req.user.id) });
+});
+
+/* ============ 验证码（腾讯云短信 / 邮箱 SMTP）+ 第三方扫码登录 ============ */
+// 发送验证码：手机号走腾讯云 SMS（配了密钥就真发），邮箱走 SMTP；未配置则演示模式回传验证码
+app.post('/api/verify/send', async (req, res) => {
+  const { target, scene } = req.body || {};
+  const channel = detectChannel(target);
+  if (!channel) return res.status(400).json({ ok: false, error: '请输入正确的手机号或邮箱' });
+  const sceneName = scene === 'third_login' ? 'third_login' : 'bind';
+  const { code } = createVerifyCode(target, channel, sceneName);
+  const r = await sendVerifyCode(target, channel, code);
+  res.json({ ok: true, channel, scene: sceneName, delivered: r.delivered, devCode: r.devCode, expireSec: 300, fallback: r.fallback || false, reason: r.reason || '' });
+});
+// 通道状态：显示当前是真实下发还是演示模式（运维可观测）
+app.get('/api/verify/channels', (req, res) => {
+  res.json({ ok: true, channels: channelStatus() });
+});
+app.post('/api/verify/check', (req, res) => {
+  const { target, code, scene } = req.body || {};
+  const r = checkVerifyCode(target, code, scene === 'third_login' ? 'third_login' : 'bind');
+  res.status(r.ok ? 200 : 400).json(r);
+});
+// 第三方扫码登录：已绑定直接进；首次需 target(手机号/邮箱) + verifyCode 完成验证并绑定
+app.post('/api/auth/third/login', async (req, res) => {
+  const { provider, code, target, verifyCode } = req.body || {};
+  try {
+    const r = await oauthLogin(provider, code, target, verifyCode);
+    res.status(r.ok || r.needBind ? 200 : 401).json(r);
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+// 已登录用户绑定手机号/邮箱（需验证码）
+app.post('/api/auth/bind/contact', authMiddleware, (req, res) => {
+  const { target, verifyCode } = req.body || {};
+  const r = bindContact(req.user.id, target, verifyCode);
+  res.status(r.ok ? 200 : 400).json(r);
+});
+
+/* ============ 运营维护 ============ */
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, uptimeSec: Math.round((Date.now() - BOOT_TIME) / 1000), time: new Date().toISOString() });
+});
+app.get('/api/admin/ops', authMiddleware, requireRole('admin'), (req, res) => {
+  res.json({ ok: true, stats: getOpsStats(), uptimeSec: Math.round((Date.now() - BOOT_TIME) / 1000) });
+});
+
 /* ============ 用户公开主页 ============ */
 app.get('/api/users/find', (req, res) => {
   const n = (req.query.nickname || '').trim();
@@ -61,8 +153,19 @@ app.get('/api/users/:id', (req, res) => {
 });
 
 /* ============ 帖子 ============ */
-app.get('/api/posts', (req, res) => {
+app.get('/api/posts', async (req, res) => {
   const { category, status, q, mine, helped, me } = req.query;
+  // 仅对「公开榜单」做缓存（带 me 的个人查询不缓存，避免串号）
+  const isPublic = !me;
+  const cacheKey = `posts:${category || ''}:${status || ''}:${q || ''}:${mine || ''}:${helped || ''}`;
+  try {
+    const rows = isPublic ? await getOrSet(cacheKey, 30, () => queryPosts({ category, status, q, mine, helped, me }))
+                          : queryPosts({ category, status, q, mine, helped, me });
+    res.json(rows.map(r => ({ ...r, tags: r.tags ? r.tags.split(',') : [] })));
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+function queryPosts({ category, status, q, mine, helped, me }) {
   let cond = 'WHERE 1=1';
   const params = [];
   if (category && category !== '全部') { cond += ' AND p.category=?'; params.push(category); }
@@ -70,7 +173,7 @@ app.get('/api/posts', (req, res) => {
   if (q) { cond += ' AND (p.title LIKE ? OR p.content LIKE ?)'; params.push(`%${q}%`, `%${q}%`); }
   if (mine && me) { cond += ' AND p.user_id=?'; params.push(me); }
   if (helped && me) { cond += ' AND p.accepted_by=?'; params.push(me); }
-  const rows = db.prepare(
+  return db.prepare(
     `SELECT p.id,p.title,p.content,p.category,p.reward,p.location,p.expected_time,p.status,p.view_count,p.created_at,
             u.nickname AS author,u.avatar AS author_avatar,u.credit_score AS author_credit,
             GROUP_CONCAT(t.tag) AS tags
@@ -78,14 +181,16 @@ app.get('/api/posts', (req, res) => {
      LEFT JOIN post_tags t ON p.id=t.post_id
      ${cond} GROUP BY p.id ORDER BY p.created_at DESC LIMIT 50`
   ).all(...params);
-  res.json(rows.map(r => ({ ...r, tags: r.tags ? r.tags.split(',') : [] })));
-});
+}
 
 app.post('/api/posts', authMiddleware, async (req, res) => {
   try {
     const body = { ...req.body, user_id: req.user.id };
     const r = await createPost(body);
-    if (r.ok) addNotification(req.user.id, 'post', '你的互助帖已通过审核并发布', r.post_id);
+    if (r.ok) {
+      addNotification(req.user.id, 'post', '你的互助帖已通过审核并发布', r.post_id);
+      cache.clear(); // 数据变更后失效列表缓存（演示用全清，生产按 key 精确失效）
+    }
     res.json(r);
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
@@ -103,13 +208,13 @@ app.get('/api/posts/:id', (req, res) => {
 });
 
 app.post('/api/posts/:id/accept', authMiddleware, (req, res) => {
-  const p = db.prepare('SELECT * FROM posts WHERE id=?').get(req.params.id);
-  if (!p) return res.status(404).json({ ok: false, error: '帖子不存在' });
-  if (p.user_id === req.user.id) return res.status(400).json({ ok: false, error: '不能接自己的帖' });
-  if (p.status !== 'open') return res.status(400).json({ ok: false, error: '该帖已被接或已完成' });
-  db.prepare('UPDATE posts SET status=?, accepted_by=? WHERE id=?').run('accepted', req.user.id, p.id);
-  addNotification(p.user_id, 'accept', `「${req.user.nickname}」接下了你的互助帖：「${p.title}」`, p.id);
-  res.json({ ok: true });
+  try {
+    // 原子接单：条件更新 + 事务包住，并发下不会重复接单（防超卖同款）
+    const r = claimPostAtomic(Number(req.params.id), req.user.id);
+    if (!r.ok) return res.status(r.code || 400).json({ ok: false, error: r.error });
+    addNotification(r.post.user_id, 'accept', `「${req.user.nickname}」接下了你的互助帖：「${r.post.title}」`, r.post.id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 app.post('/api/posts/:id/complete', authMiddleware, (req, res) => {
@@ -124,6 +229,7 @@ app.post('/api/posts/:id/complete', authMiddleware, (req, res) => {
   changeCredit(p.user_id, 2);       // 发帖人信用 +2
   addNotification(p.accepted_by, 'complete', `互助已完成：「${p.title}」，信用 +5`, p.id);
   addNotification(p.user_id, 'complete', `互助已完成：「${p.title}」，信用 +2`, p.id);
+  cache.clear();
   res.json({ ok: true });
 });
 
@@ -268,20 +374,47 @@ app.post('/api/notifications/read-all', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-/* ============ 平台运营统计（看板）============ */
-app.get('/api/stats', (req, res) => {
-  const users = db.prepare('SELECT COUNT(*) c FROM users').get().c;
-  const posts = db.prepare('SELECT COUNT(*) c FROM posts').get().c;
-  const open = db.prepare("SELECT COUNT(*) c FROM posts WHERE status='open'").get().c;
-  const accepted = db.prepare("SELECT COUNT(*) c FROM posts WHERE status='accepted'").get().c;
-  const completed = db.prepare("SELECT COUNT(*) c FROM posts WHERE status='completed'").get().c;
-  const comments = db.prepare('SELECT COUNT(*) c FROM comments').get().c;
-  const dms = db.prepare('SELECT COUNT(*) c FROM dm').get().c;
-  const notifs = db.prepare('SELECT COUNT(*) c FROM notifications').get().c;
-  const views = db.prepare('SELECT COALESCE(SUM(view_count),0) v FROM posts').get().v;
-  const byCategory = db.prepare('SELECT category, COUNT(*) c FROM posts GROUP BY category ORDER BY c DESC').all();
-  const byStatus = db.prepare("SELECT status, COUNT(*) c FROM posts GROUP BY status").all();
-  res.json({ ok: true, users, posts, open, accepted, completed, comments, dms, notifs, views, byCategory, byStatus });
+/* ============ 平台运营统计（看板，带缓存）============ */
+app.get('/api/stats', async (req, res) => {
+  try {
+    const data = await getOrSet('stats:global', 60, () => {
+      const users = db.prepare('SELECT COUNT(*) c FROM users').get().c;
+      const posts = db.prepare('SELECT COUNT(*) c FROM posts').get().c;
+      const open = db.prepare("SELECT COUNT(*) c FROM posts WHERE status='open'").get().c;
+      const accepted = db.prepare("SELECT COUNT(*) c FROM posts WHERE status='accepted'").get().c;
+      const completed = db.prepare("SELECT COUNT(*) c FROM posts WHERE status='completed'").get().c;
+      const comments = db.prepare('SELECT COUNT(*) c FROM comments').get().c;
+      const dms = db.prepare('SELECT COUNT(*) c FROM dm').get().c;
+      const notifs = db.prepare('SELECT COUNT(*) c FROM notifications').get().c;
+      const views = db.prepare('SELECT COALESCE(SUM(view_count),0) v FROM posts').get().v;
+      const byCategory = db.prepare('SELECT category, COUNT(*) c FROM posts GROUP BY category ORDER BY c DESC').all();
+      const byStatus = db.prepare("SELECT status, COUNT(*) c FROM posts GROUP BY status").all();
+      return { users, posts, open, accepted, completed, comments, dms, notifs, views, byCategory, byStatus };
+    });
+    res.json({ ok: true, ...data });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+/* ============ 管理员后台（RBAC：仅 admin 角色）============ */
+app.use('/api/admin', authMiddleware, requireRole('admin'));
+app.get('/api/admin/users', (req, res) => {
+  const list = db.prepare('SELECT id,nickname,role,credit_score,completed_count,created_at FROM users ORDER BY id').all();
+  res.json({ ok: true, list });
+});
+app.get('/api/admin/audit', (req, res) => {
+  const list = db.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT 50').all();
+  res.json({ ok: true, list });
+});
+app.post('/api/admin/users/:id/role', (req, res) => {
+  const { role } = req.body;
+  if (!['student', 'admin'].includes(role)) return res.status(400).json({ ok: false, error: '非法角色' });
+  db.prepare('UPDATE users SET role=? WHERE id=?').run(role, req.params.id);
+  res.json({ ok: true });
+});
+app.post('/api/admin/posts/:id/delete', (req, res) => {
+  const r = db.prepare('DELETE FROM posts WHERE id=?').run(req.params.id);
+  if (r.changes > 0) cache.clear();
+  res.json({ ok: r.changes > 0 });
 });
 
 app.get('/api/top-helpers', (req, res) => {

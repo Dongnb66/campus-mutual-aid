@@ -29,6 +29,24 @@
 - **后端**：Node.js ≥22 · Express · better-sqlite3（`backend/`）
 - **智能体/大模型**：`llm.js` 统一封装，支持 DeepSeek（默认）/ 任意 OpenAI 兼容协议，可用 `.env` 切换
 - **防幻觉**：无检索匹配即走规则兜底/拒答，不让模型凭空编造
+- **工程化能力（区别于"纯 Demo"的关键）**：
+  - **JWT 双令牌机制**（`access` 短效 + `refresh` 长效可吊销，存库哈希）— `auth.js` `issueTokens` / `/api/auth/refresh`
+  - **RBAC 角色权限**：`users.role` 区分 `student` / `admin`，后台接口 `requireRole('admin')` 守护 — `server.js` `/api/admin/*`
+  - **数据库事务与原子防并发**：接单用 `UPDATE ... WHERE status='open'` 条件更新包在 `db.transaction` 内，并发下不会重复接单（电商秒杀同款思路）— `db.js` `claimPostAtomic`
+  - **缓存层**：`cache.js` 带 TTL + LRU + 缓存穿透防护；热路径（首页列表 / 平台统计）自动走缓存，生产可一键替换为 Redis 适配器（接口一致）
+  - **多方式登录与账号绑定**：手机号+密码注册登录，**微信 / QQ 扫码登录**（首次强制验证手机号或邮箱 + 验证码），同一用户可绑多身份 — `auth.js` `phoneLogin` / `oauthLogin` / `bindContact` / `bindCurrentUser`
+  - **验证码双通道**：手机号走**腾讯云短信 SMS**（用 Node 内置 `crypto` 自行实现 TC3-HMAC-SHA256 签名，零 SDK 依赖），邮箱走 **SMTP**；未配置自动降级为演示模式，验证码回传前端便于联调
+  - **运营维护可观测**：请求日志中间件（方法/路径/状态码/耗时）+ `/api/health` 健康检查 + `/api/admin/ops` 运维看板（数据规模与运行时长 + 通道状态）
+
+> 该平台既可作为 **AI Agent / 多智能体** 作品，也可作为 **全栈 / 后端** 作品：多智能体体现 AI 能力，上面的工程化能力（事务 / 双 token / RBAC / 缓存 / 多方式登录 / 运维可观测）体现真实后端基本功。
+
+## ✅ 冒烟测试
+
+```bash
+cd backend
+npm install
+node test_smoke.mjs   # 一键验证 双token / RBAC / 原子接单 / 缓存 四项升级
+```
 
 ## 🚀 本地运行
 
