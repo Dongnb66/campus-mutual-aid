@@ -25,3 +25,6 @@ Thumbs.db
 # 编辑器
 .vscode/
 .idea/
+
+# vite 临时文件
+frontend/vite.config.js.timestamp-*.mjs

@@ -96,6 +96,19 @@ npm run dev
 > 在 GitHub 页面里直接点这个链接是打不开的（它只会去连**点击者自己**的 5173 端口）。
 > 想看效果请按上面的命令在本地跑起来（后端 + 前端两个终端，全程无需 API Key）。
 
+### 运行截图
+
+| 登录（内置演示账号） | 互助广场（智能推荐） |
+| --- | --- |
+| ![登录](screenshots/01-login.png) | ![互助广场](screenshots/02-plaza.png) |
+
+| 帖子详情（接单 / 私信 / 评论） | 互助助手（意图识别） |
+| --- | --- |
+| ![帖子详情](screenshots/03-post-detail.png) | ![互助助手](screenshots/04-assistant.png) |
+
+> 演示账号：`小鹿 / 123456`、`阿杰 / 123456`、`学委 / 123456`（登录页也可见）。
+> 更多截图见 [screenshots/](screenshots/) 目录。
+
 ### 为什么不用 better-sqlite3（一个真实的踩坑）
 
 最初用的是 `better-sqlite3`，它是**原生 C++ 模块**：`npm install` 时先尝试下载 GitHub release
