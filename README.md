@@ -26,7 +26,7 @@
 ## 🧱 技术栈
 
 - **前端**：React 18 · Vite 5（`frontend/`）
-- **后端**：Node.js ≥22 · Express · better-sqlite3（`backend/`）
+- **后端**：Node.js ≥22.5 · Express · node:sqlite（内置模块，`backend/`）
 - **智能体/大模型**：`llm.js` 统一封装，支持 DeepSeek（默认）/ 任意 OpenAI 兼容协议，可用 `.env` 切换
 - **防幻觉**：无检索匹配即走规则兜底/拒答，不让模型凭空编造
 - **工程化能力（区别于"纯 Demo"的关键）**：
@@ -72,6 +72,10 @@ npm run test:all      # 上面两项一起跑
 
 ## 🚀 本地运行
 
+> **环境要求**：Node.js ≥ 22.5（数据库用的是 Node 内置的 `node:sqlite`，**无需安装任何原生编译工具**）。
+> 全部依赖均为纯 JS 包，`npm install` 不触发 node-gyp 编译、不下载 GitHub release 资产，
+> 国内网络环境下也能一次装成。
+
 ```bash
 # 后端（端口 3001）
 cd backend
@@ -87,6 +91,19 @@ npm run dev
 ```
 
 打开 http://localhost:5173 即可体验。
+
+### 为什么不用 better-sqlite3（一个真实的踩坑）
+
+最初用的是 `better-sqlite3`，它是**原生 C++ 模块**：`npm install` 时先尝试下载 GitHub release
+里的预编译包，下载失败就退回 `node-gyp` 源码编译。实测两条路在国内网络 + Windows 上都会断：
+
+1. 预编译包托管在 `objects.githubusercontent.com`，该域名经常连不上（实测全部超时）；
+2. 退回源码编译则要求本机装好 **Visual Studio "Desktop development with C++" 工具链**，
+   没装就报 `gyp ERR! find VS` → `npm install` 整体失败 → `node server.js` 报
+   `Cannot find package 'express'`，看起来像"代码坏了"，其实是依赖没装上。
+
+改用 Node 内置的 `node:sqlite` 后，`npm install` 只装纯 JS 依赖（实测 <1s），
+任何能跑 Node 22.5+ 的机器 clone 下来即可运行，不需要编译器、不需要访问 GitHub releases。
 
 ## 📁 结构
 

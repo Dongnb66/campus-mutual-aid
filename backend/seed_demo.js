@@ -13,7 +13,7 @@
 //   2. 不再调用 process.exit(0)。本文件会被 src/db.js 以 `await import()`
 //      的方式加载，库里有数据时直接 process.exit(0) 会把**正在启动的服务进程**
 //      一起干掉（表现为：服务起来后立刻退出、没有任何报错）。
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -21,11 +21,11 @@ import { fileURLToPath, pathToFileURL } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_DB_PATH = process.env.CAMPUS_DB || path.join(__dirname, 'campus.db');
 
-const defaultDb = new Database(DEFAULT_DB_PATH);
+const defaultDb = new DatabaseSync(DEFAULT_DB_PATH);
 
 /**
  * 幂等扩充演示数据。
- * @param {import('better-sqlite3').Database} [db] 目标库，默认 backend/campus.db（或 CAMPUS_DB）
+ * @param {import('node:sqlite').DatabaseSync} [db] 目标库，默认 backend/campus.db（或 CAMPUS_DB）
  * @returns {{skipped:true,existing:number}|{skipped:false,users:number,posts:number,completed:number}}
  */
 export function seedDemo(db = defaultDb) {

@@ -1,6 +1,9 @@
-// SQLite 数据库初始化（better-sqlite3）
+// SQLite 数据库初始化（node:sqlite，Node 22.5+ 内置，无需任何原生编译）
+// 为什么不用 better-sqlite3：它依赖原生 C++ 模块，Windows 上若无 Visual Studio C++ 工具链，
+// 且预编译包下载被墙（release 资产走 objects.githubusercontent.com），npm install 必然失败。
+// node:sqlite 是纯内置模块，clone 下来 npm install 只装纯 JS 依赖，开箱即跑。
 // 校园互助信息发布平台 —— 多智能体增强版
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -9,9 +12,9 @@ import { createHash, randomBytes, randomInt } from 'crypto';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 默认落在 backend/campus.db；测试可用 CAMPUS_DB 指向临时库，避免污染开发数据
 const DB_PATH = process.env.CAMPUS_DB || path.join(__dirname, '..', 'campus.db');
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = OFF'); // 演示项目关闭外键约束，避免 user_id 引用问题
+const db = new DatabaseSync(DB_PATH);
+db.exec("PRAGMA journal_mode = WAL;");
+db.exec("PRAGMA foreign_keys = OFF;"); // 演示项目关闭外键约束，避免 user_id 引用问题
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -240,18 +243,32 @@ export function getOpsStats() {
   return { counts, lastActivity: last?.created_at || null, topCategory: top || null };
 }
 
+// node:sqlite 没有 better-sqlite3 的 .transaction() 帮手方法，
+// 用显式 BEGIN IMMEDIATE / COMMIT / ROLLBACK 实现等价语义（回调里 return 会正常提交）。
+function tx(fn) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = fn();
+    db.exec('COMMIT');
+    return result;
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* 可能已回滚 */ }
+    throw e;
+  }
+}
+
 // 原子接单：用「UPDATE ... WHERE status='open'」做条件更新，changes===0 即说明并发下已被抢走。
 // 整个判断+扣减包在一个事务里，避免「先查后改」的竞态（电商秒杀同款思路）。
 export function claimPostAtomic(postId, userId) {
-  return db.transaction((pid, uid) => {
-    const p = db.prepare('SELECT id,user_id,status,title FROM posts WHERE id=?').get(pid);
+  return tx(() => {
+    const p = db.prepare('SELECT id,user_id,status,title FROM posts WHERE id=?').get(postId);
     if (!p) return { ok: false, code: 404, error: '帖子不存在' };
-    if (p.user_id === uid) return { ok: false, code: 400, error: '不能接自己的帖' };
+    if (p.user_id === userId) return { ok: false, code: 400, error: '不能接自己的帖' };
     if (p.status !== 'open') return { ok: false, code: 400, error: '该帖已被接或已完成' };
-    const res = db.prepare("UPDATE posts SET status='accepted', accepted_by=? WHERE id=? AND status='open'").run(uid, pid);
+    const res = db.prepare("UPDATE posts SET status='accepted', accepted_by=? WHERE id=? AND status='open'").run(userId, postId);
     if (res.changes === 0) return { ok: false, code: 409, error: '手慢了，该帖刚被别人接走' };
     return { ok: true, post: p };
-  })(postId, userId);
+  });
 }
 
 // ---- 示例数据（仅首次）----
