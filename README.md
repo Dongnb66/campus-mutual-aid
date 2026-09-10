@@ -40,13 +40,35 @@
 
 > 该平台既可作为 **AI Agent / 多智能体** 作品，也可作为 **全栈 / 后端** 作品：多智能体体现 AI 能力，上面的工程化能力（事务 / 双 token / RBAC / 缓存 / 多方式登录 / 运维可观测）体现真实后端基本功。
 
-## ✅ 冒烟测试
+## ✅ 测试
 
 ```bash
 cd backend
 npm install
-node test_smoke.mjs   # 一键验证 双token / RBAC / 原子接单 / 缓存 四项升级
+npm test              # 5 个智能体行为测试 + 环境变量加载回归（48 项断言，无需 API Key）
+npm run test:smoke    # 全链路冒烟：双 token / RBAC / 原子接单 / 缓存
+npm run test:all      # 上面两项一起跑
 ```
+
+### 智能体测试覆盖了什么
+
+`test_agents.mjs` 用 **fetch 桩把大模型换成可控脚本**，于是"智能体到底有没有真的在调模型"变成可断言的事实，而不是靠读代码相信：
+
+| 断言组 | 关键点 |
+|--------|--------|
+| 环境变量加载 | **回归守卫**：import 之后再设 Key 也能读到（见下方「修复的两个真 bug」） |
+| Router / Post / Audit / Search / Match | 5 个智能体都存在、可调用，且规则兜底路径语义正确（意图分类、字段抽取、待追问字段、关键词检索、打分排序） |
+| 内容审核安全性 | 代考 / 刷单 / 办证发票等**违规拦截是代码级黑名单**：模型返回 500 时依然拦得住，安全不依赖模型可用性 |
+| 检索注入防护 | 查询里塞 `'; DROP TABLE posts;--` 不影响库与后续检索（全程参数化） |
+| 真的在调模型 | 有 Key 时断言请求打到 `/chat/completions`、带 `response_format=json_object`、对模型返回的非法分类做白名单校验 |
+| 降级不中断 | 模型 500 → 自动回落规则兜底，接口不报错 |
+
+### 修复的两个真 bug（此前「文档与实现相反」）
+
+| # | 问题 | 影响 | 修法 |
+|---|------|------|------|
+| 1 | `src/llm.js` 在**模块加载阶段**快照 `process.env.DEEPSEEK_API_KEY`，而 `server.js` 的 `dotenv.config()` 在 import 之后才执行（ESM import 提升） | `.env` 里配了 Key **永远读不到**，5 个智能体静默降级成规则兜底 —— 文档说「可用 `.env` 切换」，实际不行 | 新增 `src/env.js` 作为 server.js 的第一个 import 提前加载 `.env`；并把 Key 读取改为**调用时取值**，顺序再错也不会退化；占位符 Key 视为未配置 |
+| 2 | `seed_demo.js` 硬编码自己的库路径，且库里已有数据时调用 **`process.exit(0)`** —— 而它是被 `src/db.js` 用 `await import()` 加载的 | 一旦 `CAMPUS_DB` 指向别的库（或任何非默认库路径），**服务启动后立刻无声退出**，没有任何报错 | 路径改读 `CAMPUS_DB` 与 db.js 对齐；导出 `seedDemo(db)` 由调用方传库；只在**直接执行**时才自动运行，删除 `process.exit` |
 
 ## 🚀 本地运行
 
@@ -74,10 +96,13 @@ campus-mutual-aid/
 │   ├── server.js          # Express 入口 + REST API（/api/chat、/api/recommend 等）
 │   ├── src/
 │   │   ├── agents.js      # ★ 5 个智能体（Router/Post/Audit/Search/Match）
+│   │   ├── env.js         # ★ .env 引导模块（必须是 server.js 的第一个 import）
 │   │   ├── llm.js         # 大模型统一封装（DeepSeek + 规则兜底）
 │   │   ├── auth.js        # JWT 鉴权
 │   │   └── db.js          # SQLite 初始化（users/posts/comments/dm 等表）
-│   └── seed_demo.js       # 幂等演示数据脚本
+│   ├── seed_demo.js       # 幂等演示数据脚本（可执行，也可被 db.js 作为模块调用）
+│   ├── test_agents.mjs    # ★ 5 个智能体行为测试 + 环境变量加载回归（48 项）
+│   └── test_smoke.mjs     # 全链路冒烟测试
 └── frontend/
     ├── vite.config.js     # /api 代理到后端
     └── src/

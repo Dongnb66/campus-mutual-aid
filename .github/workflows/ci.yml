@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend:
+    name: 后端测试（智能体 + 全链路）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Agent tests (5 智能体 + 环境变量加载回归)
+        # 48 项断言，零 Key 可跑：无 Key 走规则兜底，有 Key 用 fetch 桩验证真的调模型
+        run: npm test
+
+      - name: Smoke test
+        run: npm run test:smoke

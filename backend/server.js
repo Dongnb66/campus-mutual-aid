@@ -1,7 +1,8 @@
 // 校园互助信息发布平台 - 后端入口（Express + 多智能体 + 鉴权）
+// 必须是第一个 import：ESM 的 import 会被提升，.env 要在其它模块加载前就绪
+import './src/env.js';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import db, { getUser, getPostAuthor, addNotification, changeCredit, incCompleted, claimPostAtomic, deleteUserRefreshTokens, getOpsStats, getIdentities, createVerifyCode, checkVerifyCode } from './src/db.js';
@@ -11,7 +12,6 @@ import { cache, getOrSet } from './src/cache.js';
 import { routeIntent, guidePost, searchPosts, matchPosts, createPost, CATEGORIES } from './src/agents.js';
 import { chat } from './src/llm.js';
 
-dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(cors());

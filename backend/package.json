@@ -10,7 +10,10 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "seed": "node seed_demo.js"
+    "seed": "node seed_demo.js",
+    "test": "node test_agents.mjs",
+    "test:smoke": "node test_smoke.mjs",
+    "test:all": "node test_agents.mjs && node test_smoke.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

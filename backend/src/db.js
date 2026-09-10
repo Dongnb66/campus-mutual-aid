@@ -7,7 +7,9 @@ import { fileURLToPath } from 'url';
 import { createHash, randomBytes, randomInt } from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const db = new Database(path.join(__dirname, '..', 'campus.db'));
+// 默认落在 backend/campus.db；测试可用 CAMPUS_DB 指向临时库，避免污染开发数据
+const DB_PATH = process.env.CAMPUS_DB || path.join(__dirname, '..', 'campus.db');
+const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = OFF'); // 演示项目关闭外键约束，避免 user_id 引用问题
 
@@ -286,12 +288,20 @@ if (count === 0) {
 
 // 首次启动自动追加完整演示数据（13 用户 / 27 帖 / 11 完成），
 // 使“node server.js 直接跑”出来的数据与 PPT、截图一致。
+// 说明：传入当前 db 实例，让 seed_demo 与 db.js 用同一个库（不再各自猜路径），
+//      且它不再 process.exit —— 否则会把正在启动的服务进程一起干掉。
 const afterCount = db.prepare('SELECT COUNT(*) c FROM posts').get().c;
 const afterUsers = db.prepare('SELECT COUNT(*) c FROM users').get().c;
 if (afterCount === 5 && afterUsers === 3) {
-  await import('./../seed_demo.js').catch((e) => {
+  try {
+    const { seedDemo } = await import('./../seed_demo.js');
+    const result = seedDemo(db);
+    if (result && !result.skipped) {
+      console.log(`[seed] 演示数据已扩充：${result.posts} 帖 / ${result.users} 用户 / 完成 ${result.completed} 单`);
+    }
+  } catch (e) {
     console.warn('[seed] 完整演示数据扩充失败：', e.message);
-  });
+  }
 }
 
 // 兼容旧库：动态补齐新列（role / is_active），以及 refresh_tokens 表已用 IF NOT EXISTS 自动创建
