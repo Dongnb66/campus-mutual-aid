@@ -54,6 +54,8 @@ npm run test:all      # 上面几项一起跑
 #   DB_DRIVER=mysql MYSQL_URL=mysql://root@127.0.0.1:3306/campus npm run test:all
 ```
 
+**测试合计 71 项断言（48 agents + 10 smoke + 13 cache），全 mock / 本地引擎，无需任何 API Key。**
+
 ### 智能体测试覆盖了什么
 
 `test_agents.mjs` 用 **fetch 桩把大模型换成可控脚本**，于是"智能体到底有没有真的在调模型"变成可断言的事实，而不是靠读代码相信：
@@ -140,7 +142,8 @@ campus-mutual-aid/
 │   │   └── db.js          # SQLite 初始化（users/posts/comments/dm 等表）
 │   ├── seed_demo.js       # 幂等演示数据脚本（可执行，也可被 db.js 作为模块调用）
 │   ├── test_agents.mjs    # ★ 5 个智能体行为测试 + 环境变量加载回归（48 项）
-│   └── test_smoke.mjs     # 全链路冒烟测试
+│   ├── test_smoke.mjs     # 全链路冒烟测试（10 项）
+│   └── test_cache.mjs     # 缓存层测试（13 项：内存后端 + 真 Redis 往返 / TTL / 穿透防护 / 故障降级）
 └── frontend/
     ├── vite.config.js     # /api 代理到后端
     └── src/
