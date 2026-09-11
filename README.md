@@ -33,7 +33,8 @@
   - **JWT 双令牌机制**（`access` 短效 + `refresh` 长效可吊销，存库哈希）— `auth.js` `issueTokens` / `/api/auth/refresh`
   - **RBAC 角色权限**：`users.role` 区分 `student` / `admin`，后台接口 `requireRole('admin')` 守护 — `server.js` `/api/admin/*`
   - **数据库事务与原子防并发**：接单用 `UPDATE ... WHERE status='open'` 条件更新包在 `db.transaction` 内，并发下不会重复接单（电商秒杀同款思路）— `db.js` `claimPostAtomic`
-  - **缓存层**：`cache.js` 带 TTL + LRU + 缓存穿透防护；热路径（首页列表 / 平台统计）自动走缓存，生产可一键替换为 Redis 适配器（接口一致）
+  - **数据库双驱动（SQLite / MySQL）**：默认 `node:sqlite` 零配置可跑；`DB_DRIVER=mysql` 时切 **mysql2 连接池 + MariaDB/MySQL**（表结构自动创建，含索引与 utf8mb4）。mysql2 是异步 API 而业务层全是同步调用，为做到**业务代码零改动**，`src/sync_mysql.mjs` 用 **worker 线程 + SharedArrayBuffer/Atomics.wait** 把 mysql2 桥接成 node:sqlite 同步语义（`prepare().get/all/run`、`changes`/`lastInsertRowid`），并在桥内翻译方言（`INSERT OR REPLACE`→`REPLACE INTO`、`BEGIN IMMEDIATE`→`START TRANSACTION`、保留字 `` `read` ``）。MySQL 不可用自动降级 SQLite。**同一套测试套件在两种引擎上全部通过**
+  - **缓存双后端（内存 / Redis）**：`cache.js` 带 TTL + LRU + 缓存穿透防护；配置 `REDIS_URL` 自动切**真 Redis**（`redis` 客户端 + `cma:` 前缀 + SCAN 按前缀清理，绝不 FLUSHDB），连接失败降级内存，运行期 Redis 掉线只当未命中处理、**不拖垮业务**；`/api/health` 暴露当前缓存后端
   - **多方式登录与账号绑定**：手机号+密码注册登录，**微信 / QQ 扫码登录**（首次强制验证手机号或邮箱 + 验证码），同一用户可绑多身份 — `auth.js` `phoneLogin` / `oauthLogin` / `bindContact` / `bindCurrentUser`
   - **验证码双通道**：手机号走**腾讯云短信 SMS**（用 Node 内置 `crypto` 自行实现 TC3-HMAC-SHA256 签名，零 SDK 依赖），邮箱走 **SMTP**；未配置自动降级为演示模式，验证码回传前端便于联调
   - **运营维护可观测**：请求日志中间件（方法/路径/状态码/耗时）+ `/api/health` 健康检查 + `/api/admin/ops` 运维看板（数据规模与运行时长 + 通道状态）
@@ -47,7 +48,10 @@ cd backend
 npm install
 npm test              # 5 个智能体行为测试 + 环境变量加载回归（48 项断言，无需 API Key）
 npm run test:smoke    # 全链路冒烟：双 token / RBAC / 原子接单 / 缓存
-npm run test:all      # 上面两项一起跑
+npm run test:cache    # 缓存层：内存后端 + 真 Redis 实测（REDIS_URL 可达时自动跑真连通用例）
+npm run test:all      # 上面几项一起跑
+# 切 MySQL 引擎跑同一套测试（需本机 MySQL/MariaDB）：
+#   DB_DRIVER=mysql MYSQL_URL=mysql://root@127.0.0.1:3306/campus npm run test:all
 ```
 
 ### 智能体测试覆盖了什么

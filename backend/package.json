@@ -13,13 +13,18 @@
     "seed": "node seed_demo.js",
     "test": "node test_agents.mjs",
     "test:smoke": "node test_smoke.mjs",
-    "test:all": "node test_agents.mjs && node test_smoke.mjs"
+    "test:all": "node test_agents.mjs && node test_smoke.mjs && node test_cache.mjs",
+    "test:cache": "node test_cache.mjs",
+    "test:mysql": "node --env-file-if-exists=.env test_agents.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2"
-  }
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.24.4",
+    "redis": "^4.7.1"
+  },
+  "test": "node test_agents.mjs"
 }

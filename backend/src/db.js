@@ -3,6 +3,12 @@
 // 且预编译包下载被墙（release 资产走 objects.githubusercontent.com），npm install 必然失败。
 // node:sqlite 是纯内置模块，clone 下来 npm install 只装纯 JS 依赖，开箱即跑。
 // 校园互助信息发布平台 —— 多智能体增强版
+//
+// 双驱动（2026-09-12）：默认 SQLite（零配置可跑），DB_DRIVER=mysql 时切 MySQL/MariaDB。
+// mysql2 是异步 API，而业务层全部是 node:sqlite 的同步调用——为做到「业务代码零改动」，
+// src/sync_mysql.mjs 用 worker 线程 + SharedArrayBuffer/Atomics.wait 把 mysql2 桥接成
+// 同步 API（语义与 node:sqlite 一致：查询期间阻塞、IO 在 worker 线程执行），
+// 并在桥内翻译两处方言（INSERT OR REPLACE → REPLACE、BEGIN IMMEDIATE → START TRANSACTION）。
 import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
 import path from 'path';
@@ -12,10 +18,147 @@ import { createHash, randomBytes, randomInt } from 'crypto';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 默认落在 backend/campus.db；测试可用 CAMPUS_DB 指向临时库，避免污染开发数据
 const DB_PATH = process.env.CAMPUS_DB || path.join(__dirname, '..', 'campus.db');
-const db = new DatabaseSync(DB_PATH);
-db.exec("PRAGMA journal_mode = WAL;");
-db.exec("PRAGMA foreign_keys = OFF;"); // 演示项目关闭外键约束，避免 user_id 引用问题
 
+const DRIVER = (process.env.DB_DRIVER || 'sqlite').toLowerCase();
+const MYSQL_URL = process.env.MYSQL_URL || 'mysql://root@127.0.0.1:3307/campus';
+
+let db;
+if (DRIVER === 'mysql') {
+  try {
+    const { createSyncMySQL } = await import('./sync_mysql.mjs');
+    db = await createSyncMySQL(MYSQL_URL);
+    console.log(`[db] 引擎 = MySQL/MariaDB（${MYSQL_URL}）`);
+  } catch (e) {
+    console.warn(`[db] MySQL 不可用（${e.message}），降级 SQLite`);
+  }
+}
+if (!db) {
+  db = new DatabaseSync(DB_PATH);
+  db.exec("PRAGMA journal_mode = WAL;");
+  db.exec("PRAGMA foreign_keys = OFF;"); // 演示项目关闭外键约束，避免 user_id 引用问题
+}
+
+if (db.driver === 'mysql') {
+  // MySQL/MariaDB 方言建表（MariaDB 11.4 实测；MySQL 8 需去掉 INDEX 的 IF NOT EXISTS）
+  db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nickname VARCHAR(64) NOT NULL UNIQUE,
+  password_hash VARCHAR(128) NOT NULL,
+  school VARCHAR(128),
+  grade VARCHAR(64),
+  avatar VARCHAR(32) DEFAULT '🦌',
+  credit_score INT DEFAULT 100,
+  completed_count INT DEFAULT 0,
+  role VARCHAR(16) DEFAULT 'student',
+  is_active TINYINT DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS posts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  title VARCHAR(255) NOT NULL,
+  content TEXT NOT NULL,
+  category VARCHAR(32) NOT NULL,
+  reward VARCHAR(64),
+  contact VARCHAR(128),
+  location VARCHAR(128),
+  expected_time VARCHAR(64),
+  status VARCHAR(16) DEFAULT 'open',
+  accepted_by INT,
+  view_count INT DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS post_tags (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  post_id INT,
+  tag VARCHAR(64) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS comments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  post_id INT,
+  user_id INT,
+  content TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS dm (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  sender_id INT,
+  receiver_id INT,
+  content TEXT NOT NULL,
+  \`read\` TINYINT DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  type VARCHAR(32),
+  content TEXT,
+  related_id INT,
+  \`read\` TINYINT DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  post_id INT,
+  passed TINYINT,
+  reason VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ai_messages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  role VARCHAR(16),
+  content TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  token_hash VARCHAR(64) NOT NULL UNIQUE,
+  expires_at VARCHAR(40) NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS user_identities (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  provider VARCHAR(16) NOT NULL,
+  external_id VARCHAR(128) NOT NULL,
+  verified TINYINT NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uk_ident UNIQUE (provider, external_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS verify_codes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  target VARCHAR(128) NOT NULL,
+  channel VARCHAR(16) NOT NULL,
+  code_hash VARCHAR(64) NOT NULL,
+  scene VARCHAR(32) NOT NULL,
+  expired_at BIGINT NOT NULL,
+  used TINYINT NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE INDEX IF NOT EXISTS idx_posts_category ON posts(category);
+CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);
+CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_post_tags_post ON post_tags(post_id);
+CREATE INDEX IF NOT EXISTS idx_dm_pair ON dm(sender_id, receiver_id);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, \`read\`);
+CREATE INDEX IF NOT EXISTS idx_ident_user ON user_identities(user_id);
+CREATE INDEX IF NOT EXISTS idx_vc_target ON verify_codes(target, scene);
+`);
+} else {
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,6 +279,7 @@ CREATE TABLE IF NOT EXISTS verify_codes (
 );
 CREATE INDEX IF NOT EXISTS idx_vc_target ON verify_codes(target, scene);
 `);
+} // sqlite / mysql 建表分支结束
 
 // ---- 公共辅助函数 ----
 export function sha256(s) { return createHash('sha256').update(String(s)).digest('hex'); }

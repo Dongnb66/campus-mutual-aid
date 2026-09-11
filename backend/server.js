@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import db, { getUser, getPostAuthor, addNotification, changeCredit, incCompleted, claimPostAtomic, deleteUserRefreshTokens, getOpsStats, getIdentities, createVerifyCode, checkVerifyCode } from './src/db.js';
 import { register, login, authMiddleware, refreshAccessToken, logout, requireRole, phoneRegister, phoneLogin, oauthLogin, bindCurrentUser, bindContact } from './src/auth.js';
 import { sendVerifyCode, detectChannel, channelStatus } from './src/verify.js';
-import { cache, getOrSet } from './src/cache.js';
+import { cache, getOrSet, initCache, cacheBackend } from './src/cache.js';
 import { routeIntent, guidePost, searchPosts, matchPosts, createPost, CATEGORIES } from './src/agents.js';
 import { chat } from './src/llm.js';
 
@@ -126,7 +126,7 @@ app.post('/api/auth/bind/contact', authMiddleware, (req, res) => {
 
 /* ============ 运营维护 ============ */
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, uptimeSec: Math.round((Date.now() - BOOT_TIME) / 1000), time: new Date().toISOString() });
+  res.json({ ok: true, uptimeSec: Math.round((Date.now() - BOOT_TIME) / 1000), time: new Date().toISOString(), cache: cacheBackend });
 });
 app.get('/api/admin/ops', authMiddleware, requireRole('admin'), (req, res) => {
   res.json({ ok: true, stats: getOpsStats(), uptimeSec: Math.round((Date.now() - BOOT_TIME) / 1000) });
@@ -332,7 +332,7 @@ app.get('/api/dm/list', authMiddleware, (req, res) => {
   const list = rows.map(r => ({
     other: r.other,
     nickname: r.nickname, avatar: r.avatar,
-    last: r.content, unread: db.prepare('SELECT COUNT(*) c FROM dm WHERE sender_id=? AND receiver_id=? AND read=0').get(r.other, req.user.id).c
+    last: r.content, unread: db.prepare('SELECT COUNT(*) c FROM dm WHERE sender_id=? AND receiver_id=? AND `read`=0').get(r.other, req.user.id).c
   }));
   res.json(list);
 });
@@ -343,7 +343,7 @@ app.get('/api/dm/:userId', authMiddleware, (req, res) => {
   const msgs = db.prepare(
     'SELECT sender_id, content, created_at FROM dm WHERE (sender_id=? AND receiver_id=?) OR (sender_id=? AND receiver_id=?) ORDER BY id ASC'
   ).all(req.user.id, req.params.userId, req.params.userId, req.user.id);
-  db.prepare('UPDATE dm SET read=1 WHERE sender_id=? AND receiver_id=?').run(req.params.userId, req.user.id);
+  db.prepare('UPDATE dm SET `read`=1 WHERE sender_id=? AND receiver_id=?').run(req.params.userId, req.user.id);
   res.json({ ok: true, partner, messages: msgs });
 });
 
@@ -361,16 +361,16 @@ app.post('/api/dm', authMiddleware, (req, res) => {
 
 /* ============ 通知 ============ */
 app.get('/api/notifications', authMiddleware, (req, res) => {
-  const rows = db.prepare('SELECT id,type,content,related_id,read,created_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 40').all(req.user.id);
-  const unread = db.prepare('SELECT COUNT(*) c FROM notifications WHERE user_id=? AND read=0').get(req.user.id).c;
+  const rows = db.prepare('SELECT id,type,content,related_id,`read`,created_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 40').all(req.user.id);
+  const unread = db.prepare('SELECT COUNT(*) c FROM notifications WHERE user_id=? AND `read`=0').get(req.user.id).c;
   res.json({ ok: true, list: rows, unread });
 });
 app.post('/api/notifications/:id/read', authMiddleware, (req, res) => {
-  db.prepare('UPDATE notifications SET read=1 WHERE id=? AND user_id=?').run(req.params.id, req.user.id);
+  db.prepare('UPDATE notifications SET `read`=1 WHERE id=? AND user_id=?').run(req.params.id, req.user.id);
   res.json({ ok: true });
 });
 app.post('/api/notifications/read-all', authMiddleware, (req, res) => {
-  db.prepare('UPDATE notifications SET read=1 WHERE user_id=?').run(req.user.id);
+  db.prepare('UPDATE notifications SET `read`=1 WHERE user_id=?').run(req.user.id);
   res.json({ ok: true });
 });
 
@@ -436,4 +436,6 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`CampusWall backend running on :${PORT}`));
+// 缓存后端初始化：配置 REDIS_URL 则连真 Redis，连不上自动降级内存（ESM 顶层 await）
+await initCache();
+app.listen(PORT, () => console.log(`CampusWall backend running on :${PORT} (cache=${cacheBackend})`));
