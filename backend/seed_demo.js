@@ -42,8 +42,8 @@ export function seedDemo(db = defaultDb) {
   );
   const insertTag = db.prepare('INSERT INTO post_tags(post_id,tag) VALUES (?,?)');
   const insertComment = db.prepare('INSERT INTO comments(post_id,user_id,content) VALUES (?,?,?)');
-  const insertDm = db.prepare('INSERT INTO dm(sender_id,receiver_id,content,read) VALUES (?,?,?,?)');
-  const insertNotif = db.prepare('INSERT INTO notifications(user_id,type,content,related_id,read) VALUES (?,?,?,?,?)');
+  const insertDm = db.prepare('INSERT INTO dm(sender_id,receiver_id,content,`read`) VALUES (?,?,?,?)');
+  const insertNotif = db.prepare('INSERT INTO notifications(user_id,type,content,related_id,`read`) VALUES (?,?,?,?,?)');
   const insertAudit = db.prepare('INSERT INTO audit_log(post_id,passed,reason) VALUES (?,?,?)');
   const setUser = db.prepare('UPDATE users SET credit_score=?, completed_count=? WHERE id=?');
 
