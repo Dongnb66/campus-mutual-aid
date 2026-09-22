@@ -55,6 +55,7 @@ npm run test:all      # 上面几项一起跑
 ```
 
 **测试合计 71 项断言（48 agents + 10 smoke + 13 cache），全 mock / 本地引擎，无需任何 API Key。**
+（缓存 13 项 = **内存 7 + 真 Redis 6**；无 Redis 环境时后 6 项自动 SKIP，实跑报 7 项 —— 属预期行为，非失败。）
 
 ### 智能体测试覆盖了什么
 
