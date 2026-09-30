@@ -9,7 +9,8 @@ import db, { getUser, getPostAuthor, addNotification, changeCredit, incCompleted
 import { register, login, authMiddleware, refreshAccessToken, logout, requireRole, phoneRegister, phoneLogin, oauthLogin, bindCurrentUser, bindContact } from './src/auth.js';
 import { sendVerifyCode, detectChannel, channelStatus } from './src/verify.js';
 import { cache, getOrSet, initCache, cacheBackend } from './src/cache.js';
-import { routeIntent, guidePost, searchPosts, matchPosts, createPost, CATEGORIES } from './src/agents.js';
+import { matchPosts, createPost } from './src/agents.js';
+import { runChatPipeline } from './src/orchestrator.js';
 import { chat } from './src/llm.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -259,12 +260,13 @@ app.post('/api/posts/:id/comment', authMiddleware, (req, res) => {
 });
 
 /* ============ 智能推荐（Match Agent）============ */
+// 可选 ?q=需求文本：带上时 Match 会先调 Search 的查询理解（智能体间协作），再做 LLM 重排
 app.get('/api/recommend', authMiddleware, async (req, res) => {
-  try { res.json(await matchPosts(req.user)); }
+  try { res.json(await matchPosts(req.user, { query: String(req.query.q || '') })); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-/* ============ AI 对话入口（Router 分发）============ */
+/* ============ AI 对话入口（编排器统一调度，逐智能体 trace 可审计）============ */
 app.post('/api/chat', authMiddleware, async (req, res) => {
   try {
     const { message } = req.body;
@@ -272,42 +274,17 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       return res.status(400).json({ ok: false, error: '消息不能为空' });
     }
     db.prepare('INSERT INTO ai_messages(user_id,role,content) VALUES (?,?,?)').run(req.user.id, 'user', message);
-    const route = await routeIntent(message);
-
-    if (route.intent === 'post') {
-      const post = await guidePost(message);
-      if (post && post.missing && post.missing.length) {
-        const reply = `已生成发帖草稿，还需补充：${post.missing.join('、')}。\n（可在下方直接补全重发完整需求，或到「发帖」页按草稿补全后发布）`;
-        db.prepare('INSERT INTO ai_messages(user_id,role,content) VALUES (?,?,?)').run(req.user.id, 'assistant', reply);
-        return res.json({ intent: 'post', reply, draft: post });
-      }
-      if (post) {
-        // 规则兜底可能缺字段，这里统一再校验一次，避免发布半成品
-        if (!post.title || !post.content) {
-          const reply = '抱歉，我没能理解完整的发帖内容，请到「发帖」页补充标题和正文。';
-          db.prepare('INSERT INTO ai_messages(user_id,role,content) VALUES (?,?,?)').run(req.user.id, 'assistant', reply);
-          return res.json({ intent: 'post', reply, draft: post });
-        }
-        const r = await createPost({ ...post, user_id: req.user.id });
-        const reply = r.ok ? `✅ 已为你发布互助帖：「${post.title}」` : `发布失败：${r.reason}`;
-        db.prepare('INSERT INTO ai_messages(user_id,role,content) VALUES (?,?,?)').run(req.user.id, 'assistant', reply);
-        return res.json({ intent: 'post', reply, result: r });
-      }
-    }
-    if (route.intent === 'search') {
-      const rows = await searchPosts(message);
-      const reply = `为你找到 ${rows.length} 条相关帖子，已为你列出～`;
-      db.prepare('INSERT INTO ai_messages(user_id,role,content) VALUES (?,?,?)').run(req.user.id, 'assistant', reply);
-      return res.json({ intent: 'search', reply, results: rows });
-    }
-    if (route.intent === 'consult') {
-      const reply = '📌 使用指引：①注册登录后到「发帖」发布互助需求（代拿/接课/寻物/二手/组队）；②在「广场」浏览或「检索」用自然语言找帖；③看到合适的点「接单」，完成后双方信用加分；④陌生交易注意安全，平台已对内容进行AI审核。';
-      db.prepare('INSERT INTO ai_messages(user_id,role,content) VALUES (?,?,?)').run(req.user.id, 'assistant', reply);
-      return res.json({ intent: 'consult', reply });
-    }
-    const reply = '你好呀～我可以帮你：① 一句话发帖（如「帮忙代拿外卖到3栋，报酬5元」）；② 找帖（如「有没有人明天帮我带饭」）；③ 解答平台使用问题。试试看？';
-    db.prepare('INSERT INTO ai_messages(user_id,role,content) VALUES (?,?,?)').run(req.user.id, 'assistant', reply);
-    return res.json({ intent: 'chat', reply });
+    const out = await runChatPipeline({ message, user: req.user });
+    db.prepare('INSERT INTO ai_messages(user_id,role,content) VALUES (?,?,?)').run(req.user.id, 'assistant', out.reply);
+    // 响应字段与 v1 完全一致（intent/reply/draft/result/results），trace 为新增
+    return res.json({
+      intent: out.intent,
+      reply: out.reply,
+      ...(out.draft ? { draft: out.draft } : {}),
+      ...(out.result ? { result: out.result } : {}),
+      ...(out.results ? { results: out.results } : {}),
+      trace: out.trace,
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

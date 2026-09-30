@@ -11,7 +11,7 @@ function getConfig() {
   return {
     apiKey: isPlaceholder(rawKey) ? '' : rawKey,
     baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1',
-    model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+    model: process.env.DEEPSEEK_MODEL || 'deepseek-flash',
   };
 }
 

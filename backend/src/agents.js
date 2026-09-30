@@ -1,6 +1,6 @@
 // 多智能体定义：Router / Post / Search / Audit / Match
 // 说明：若未配置模型 Key，各 Agent 自动回退到「规则兜底」，保证无 Key 也能演示核心流程。
-import { chat } from './llm.js';
+import { chat, llmConfigured } from './llm.js';
 import db from './db.js';
 
 export const CATEGORIES = ['代拿', '接课', '寻物', '二手', '组队', '其他'];
@@ -147,9 +147,19 @@ export async function auditPost(content) {
 }
 
 // ---- Search Agent：自然语言搜帖 ----
-export async function searchPosts(query) {
-  let cond = '';
-  let params = [];
+//
+// 查询理解单独拆成 extractQuery：它是 Search 智能体的「理解能力」，
+// Match 智能体在带需求文本撮合时会把它当工具调用（真实的智能体间协作，
+// 而不是各算各的）。规则兜底与 LLM 分支返回同一结构 {category, keywords}。
+function ruleExtractQuery(query) {
+  // 规则兜底：按常见互助关键词匹配（中文无空格，不能用 split）
+  const KEYWORDS = ['代拿', '外卖', '快递', '接课', '带课', '寻物', '丢失', '二手', '转卖', '组队', '拼', '带饭', '拿', '自行车', '奶茶', '签到'];
+  const ks = KEYWORDS.filter((k) => query.includes(k));
+  return { category: null, keywords: ks.length ? ks : [query] };
+}
+
+export async function extractQuery(query) {
+  if (!llmConfigured()) return ruleExtractQuery(query);
   try {
     const sys = `你是检索智能体。从用户查询提取用于数据库检索的关键词（分类/文本），只返回JSON：
 {"category":string|null,"keywords":[string]}`;
@@ -159,17 +169,23 @@ export async function searchPosts(query) {
     ], { response_format: { type: 'json_object' }, temperature: 0.2 });
     const p = JSON.parse(parsed);
     const cat = normStr(p.category);
-    if (cat && CATEGORIES.includes(cat)) { cond += ' AND category=?'; params.push(cat); }
     const kws = Array.isArray(p.keywords)
-      ? p.keywords.map(k => normStr(k)).filter(k => k && k.length <= 20).slice(0, 6)
+      ? p.keywords.map((k) => normStr(k)).filter((k) => k && k.length <= 20).slice(0, 6)
       : [];
-    kws.forEach(k => { cond += ' AND (title LIKE ? OR content LIKE ?)'; params.push(`%${k}%`, `%${k}%`); });
+    return { category: cat && CATEGORIES.includes(cat) ? cat : null, keywords: kws };
   } catch {
-    // 规则兜底：按常见互助关键词匹配（中文无空格，不能用 split）
-    const KEYWORDS = ['代拿', '外卖', '快递', '接课', '带课', '寻物', '丢失', '二手', '转卖', '组队', '拼', '带饭', '拿', '自行车', '奶茶', '签到'];
-    const ks = KEYWORDS.filter(k => query.includes(k));
-    if (ks.length === 0) { cond += ' AND (title LIKE ? OR content LIKE ?)'; params.push(`%${query}%`, `%${query}%`); }
-    ks.forEach(k => { cond += ' AND (title LIKE ? OR content LIKE ?)'; params.push(`%${k}%`, `%${k}%`); });
+    return ruleExtractQuery(query);
+  }
+}
+
+export async function searchPosts(query) {
+  const q = await extractQuery(query);
+  let cond = '';
+  const params = [];
+  if (q.category) { cond += ' AND category=?'; params.push(q.category); }
+  for (const k of q.keywords) {
+    cond += ' AND (title LIKE ? OR content LIKE ?)';
+    params.push(`%${k}%`, `%${k}%`);
   }
   const rows = db.prepare(
     `SELECT p.id,p.title,p.content,p.category,p.reward,p.contact,p.location,p.expected_time,p.status,p.created_at,
@@ -183,8 +199,20 @@ export async function searchPosts(query) {
 }
 
 // ---- Match Agent：个性化推荐撮合 ----
-// 规则兜底版：结合用户历史发帖分类偏好 + 报酬 + 新鲜度打分排序
-export async function matchPosts(user, limit = 8) {
+//
+// v2：从纯规则打分升级为真 LLM 智能体，三级流水：
+//   1) SQL 粗筛候选池（50 条，排除自己/已取消）
+//   2) [智能体间协作] 带需求文本时，调用 Search 智能体的 extractQuery 做查询理解
+//   3) LLM 重排（给每条推荐理由 + 置信度）——置信 <0.6 / 排序非法 / 模型异常
+//      一律回退规则打分（偏好 ×3 + 报酬 + 信用 + 新鲜度），无 Key 直接走规则版
+// opts 兼容旧签名：matchPosts(user, 8) 与 matchPosts(user, { limit, query, trace }) 均可。
+export async function matchPosts(user, opts = {}) {
+  const o = typeof opts === 'number' ? { limit: opts } : (opts || {});
+  const limit = o.limit || 8;
+  const query = normStr(o.query || '');
+  const trace = Array.isArray(o.trace) ? o.trace : null;
+
+  // 1) 候选池粗筛
   const rows = db.prepare(
     `SELECT p.id,p.title,p.content,p.category,p.reward,p.location,p.expected_time,p.status,p.created_at,
             u.nickname AS author,u.avatar AS author_avatar,u.credit_score AS author_credit
@@ -196,9 +224,9 @@ export async function matchPosts(user, limit = 8) {
   // 用户历史发帖分类偏好
   const myCats = db.prepare('SELECT category, COUNT(*) c FROM posts WHERE user_id=? GROUP BY category').all(user.id);
   const pref = {};
-  myCats.forEach(r => pref[r.category] = r.c);
+  myCats.forEach((r) => { pref[r.category] = r.c; });
 
-  const scored = rows.map(r => {
+  const ruleScoreOf = (r) => {
     let score = 0;
     score += pref[r.category] ? pref[r.category] * 3 : 0;       // 偏好加权
     if (r.reward && r.reward !== '—') score += 2;              // 有报酬优先
@@ -206,13 +234,115 @@ export async function matchPosts(user, limit = 8) {
     // 新鲜度：越近越高
     const ageH = (Date.now() - new Date(r.created_at).getTime()) / 3600000;
     score += Math.max(0, 5 - ageH / 12);
-    return { ...r, score: Math.round(score * 10) / 10 };
-  });
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit);
+    return Math.round(score * 10) / 10;
+  };
+  const ruleOrder = (pool) =>
+    pool.map((r) => ({ ...r, score: ruleScoreOf(r), matched_by: 'rule' }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+  if (!rows.length) {
+    trace?.push({ agent: 'Match', action: '候选池为空→规则兜底', detail: '候选 0 条' });
+    return [];
+  }
+
+  // 2) [智能体间协作] 带需求文本 → 调 Search 智能体的查询理解作为工具
+  let qinfo = null;
+  if (query) {
+    const t0 = Date.now();
+    qinfo = await extractQuery(query);
+    trace?.push({
+      agent: 'Match→Search',
+      action: '查询理解（工具复用）',
+      ms: Date.now() - t0,
+      detail: `category=${qinfo.category || '—'} keywords=${(qinfo.keywords || []).join('/') || '—'}`,
+    });
+  }
+
+  // 3) 无 Key → 规则兜底（不发起任何模型请求）
+  if (!llmConfigured()) {
+    const result = ruleOrder(rows);
+    trace?.push({ agent: 'Match', action: '规则兜底排序', detail: `候选 ${rows.length} 条（未配置 Key）` });
+    return result;
+  }
+
+  // 4) LLM 重排（任何异常都回退规则版，撮合永远有结果）
+  try {
+    // 类目过滤：查询理解出明确类目时先收窄候选池（排空则放弃过滤）
+    let pool = rows;
+    if (qinfo?.category) {
+      const narrowed = pool.filter((r) => r.category === qinfo.category);
+      if (narrowed.length) pool = narrowed;
+    }
+    const t1 = Date.now();
+    const sys = `你是撮合智能体。根据求助者画像与候选互助帖，输出个性化推荐排序。只返回JSON：
+{"ranking":[{"id":number,"reason":"一句话推荐理由(不超过20字)"}],"confidence":0到1的小数}
+要求：id 必须来自候选列表；ranking 最多 ${limit} 条；信息不足或不确定时降低 confidence。`;
+    const userProfile = `求助者历史偏好分类：${Object.keys(pref).join('/') || '暂无'}${query ? `；当前需求：${query}` : ''}`;
+    const candText = pool.slice(0, 20)
+      .map((r) => `#${r.id} [${r.category}] ${r.title}｜报酬:${r.reward || '—'}｜地点:${r.location || '—'}｜时间:${r.expected_time || '—'}｜信用:${r.author_credit}`)
+      .join('\n');
+    const out = await chat([
+      { role: 'system', content: sys },
+      { role: 'user', content: `${userProfile}\n候选：\n${candText}` },
+    ], { response_format: { type: 'json_object' }, temperature: 0.3 });
+    const p = JSON.parse(out);
+    const confidence = Number(p.confidence);
+    const byId = new Map(pool.map((r) => [String(r.id), r]));
+    const ranked = (Array.isArray(p.ranking) ? p.ranking : [])
+      .map((x) => ({ x, row: byId.get(String(x?.id)) }))
+      .filter((e) => e.row && normStr(e.x.reason))
+      .slice(0, limit)
+      .map((e, i) => ({
+        ...e.row,
+        score: ruleScoreOf(e.row) + (limit - i) / 10, // 模型序为主，规则分做次级锚
+        match_reason: normStr(e.x.reason),
+        matched_by: 'llm',
+      }));
+    if (confidence < 0.6 || ranked.length === 0) {
+      throw new Error(`低置信(${Number.isFinite(confidence) ? confidence : 'NaN'})或空排序，回退规则版`);
+    }
+    // 模型只回了部分 → 其余候选按规则分续在后面，保证 limit 生效
+    const rest = ruleOrder(rows).filter((r) => !ranked.some((x) => x.id === r.id));
+    const result = [...ranked, ...rest].slice(0, limit);
+    trace?.push({
+      agent: 'Match',
+      action: 'LLM 重排',
+      ms: Date.now() - t1,
+      detail: `候选 ${pool.length} 条 · 置信 ${confidence} · top1：${ranked[0]?.match_reason || '—'}`,
+    });
+    return result;
+  } catch (e) {
+    const result = ruleOrder(rows);
+    trace?.push({ agent: 'Match', action: 'LLM 重排失败→规则兜底', detail: normStr(e.message).slice(0, 80) });
+    return result;
+  }
 }
 
-// 创建帖子（含审核）
+// ---- Guide 智能体第二职责：被拒后的改写建议 ----
+// [智能体间协作] createPost 里 Audit 拒绝后调用本函数，把「拒绝原因 + 原文」
+// 交给发帖引导智能体生成合规改写建议；无 Key/模型异常 → 规则建议（永远有产物）。
+function ruleSuggest(reason) {
+  return `请删除涉及违规的表述（${normStr(reason) || '内容不合规'}），保留正当求助意图后重新发布；建议补充具体的「物品/时间/地点/报酬」信息，更容易被接单。`;
+}
+
+export async function suggestRewrite(content, reason) {
+  if (!llmConfigured()) return ruleSuggest(reason);
+  try {
+    const sys = `你是发帖引导智能体。用户的互助帖因「${normStr(reason) || '内容不合规'}」被审核拦截。
+请给出一段合规的改写建议：去掉违规点、保留正当求助意图。只返回JSON：{"suggestion":string}`;
+    const out = await chat([
+      { role: 'system', content: sys },
+      { role: 'user', content: String(content || '') },
+    ], { response_format: { type: 'json_object' }, temperature: 0.4 });
+    const s = normStr(JSON.parse(out).suggestion);
+    return s || ruleSuggest(reason);
+  } catch {
+    return ruleSuggest(reason);
+  }
+}
+
+// 创建帖子（含审核；Audit 拒绝 → Guide 生成改写建议一起返回）
 export async function createPost({ user_id, title, content, category, reward, contact, location, expected_time }) {
   title = normStr(title);
   content = normStr(content);
@@ -225,7 +355,9 @@ export async function createPost({ user_id, title, content, category, reward, co
   if (!audit.passed) {
     // 被拦截内容也留痕，保证“审核可追溯”
     db.prepare('INSERT INTO audit_log(post_id,passed,reason) VALUES (?,?,?)').run(null, 0, audit.reason || '审核拦截');
-    return { ok: false, reason: audit.reason };
+    // [智能体间协作] Audit 拒绝 → Guide 给出合规改写建议，拒绝不再是死胡同
+    const suggest = await suggestRewrite(content, audit.reason);
+    return { ok: false, reason: audit.reason, suggest };
   }
   const pid = db.prepare(
     'INSERT INTO posts(user_id,title,content,category,reward,contact,location,expected_time) VALUES (?,?,?,?,?,?,?,?)'

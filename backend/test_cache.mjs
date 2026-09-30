@@ -7,6 +7,11 @@ import { cache, getOrSet, initCache, cacheBackend } from './src/cache.js';
 let passed = 0;
 function ok(name) { passed++; console.log(`  ok ${passed} - ${name}`); }
 
+// 内存段强制内存后端：外置 REDIS_URL 保存起来，Redis 段再还原
+// （否则配了 REDIS_URL 时，第一段 initCache 直连 redis，assert memory 必挂）
+const REDIS_URL_SAVED = process.env.REDIS_URL || '';
+delete process.env.REDIS_URL;
+
 // ---------- 内存后端（默认） ----------
 {
   const backend = await initCache();
@@ -58,7 +63,7 @@ function ok(name) { passed++; console.log(`  ok ${passed} - ${name}`); }
 
 // ---------- Redis 后端（真连接实测） ----------
 {
-  process.env.REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+  process.env.REDIS_URL = REDIS_URL_SAVED || 'redis://127.0.0.1:6379';
   const backend = await initCache();
   if (backend !== 'redis') {
     console.log('  SKIP - Redis 不可达，跳过真 Redis 用例（降级逻辑本身已验证）');

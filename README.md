@@ -1,16 +1,19 @@
 # 校园互助平台 · 多智能体增强版（Campus Mutual-Aid · Multi-Agent）
 
 一个**用多智能体编排解决"校园互助匹配效率低、内容难管控"问题**的全栈平台。
-核心业务是一条**多智能体协作流水线**：需求理解 → 发帖引导 → 内容审核 → 检索 → 智能撮合，
-各环节由独立智能体承担、可单独调试与替换；同时用 **LLM 关键词抽取 + 检索智能体**（RAG 检索链路：查询抽取 → 结构化过滤 → 结果重排）做"需求–资源"精准匹配，
-并用 **内容审核智能体** 自动拦截违规信息、**信用撮合** 建立用户信任体系，形成完整业务闭环。
+核心业务是一条**由编排器（`orchestrator.js`）显式调度的多智能体协作流水线**：
+需求理解 → 发帖引导 → 内容审核 → 检索 → 智能撮合，各环节由独立智能体承担、可单独调试与替换，
+**每一次智能体调用都留有 trace（agent/耗时/结果摘要），编排步数有硬上限**；
+智能体之间有两处真实的协作：撮合带需求文本时**复用检索智能体的查询理解作为工具**（Match→Search），
+内容被审核拦截时**回调发帖引导智能体生成合规改写建议**（Audit→Guide）；
+撮合智能体（v2）对候选池做 **LLM 重排**并给出推荐理由，低置信/模型异常自动回退规则打分。
 
 > 产品设计针对传统校园互助平台「匹配效率低、内容难管控」两类问题。
 > 第 22 届湖南省大学生计算机程序设计竞赛 · 应用开发类参赛作品（已提交校内选拔）。
 
 ## ✨ 多智能体流水线
 
-后端 `backend/src/agents.js` 定义了 5 个可独立调用/替换的智能体：
+后端 `backend/src/agents.js` 定义了 5 个可独立调用/替换的智能体，由 `backend/src/orchestrator.js` 统一编排：
 
 | 智能体 | 函数 | 职责 |
 |---|---|---|
@@ -18,7 +21,7 @@
 | **发帖引导 Post Guide** | `guidePost` | 从一句话里抽取标题/内容/地点/时间/联系方式等结构化帖子字段 |
 | **内容审核 Audit** | `auditPost` | 校验内容合规（广告/敏感词/违规/诈骗），违规自动拦截 |
 | **检索 Search** | `searchPosts` | 从查询提取检索关键词，走 RAG 检索链路（关键词抽取 → 结构化过滤 → 结果重排）找匹配帖子 |
-| **撮合 Match** | `matchPosts` | 按信用分/完成率/活跃度做"需求–服务者"智能撮合推荐 |
+| **撮合 Match** | `matchPosts` | SQL 粗筛候选池 → 带需求文本时复用 Search 的查询理解（工具调用）→ **LLM 重排**并给推荐理由；置信 <0.6 / 排序非法 / 模型异常自动回退规则打分（偏好/报酬/信用/新鲜度） |
 
 关键设计：**每个智能体都支持两套实现——配置了模型 Key 走大模型（DeepSeek 等），未配置自动回退"规则兜底"**，
 保证 `clone` 下来**无 Key 也能端到端跑通演示**，同时兼顾成本与可用性。
@@ -46,7 +49,7 @@
 ```bash
 cd backend
 npm install
-npm test              # 5 个智能体行为测试 + 环境变量加载回归（48 项断言，无需 API Key）
+npm test              # 智能体行为测试（48）+ 编排器与智能体协作测试（21），无需 API Key
 npm run test:smoke    # 全链路冒烟：双 token / RBAC / 原子接单 / 缓存
 npm run test:cache    # 缓存层：内存后端 + 真 Redis 实测（REDIS_URL 可达时自动跑真连通用例）
 npm run test:all      # 上面几项一起跑
@@ -54,7 +57,7 @@ npm run test:all      # 上面几项一起跑
 #   DB_DRIVER=mysql MYSQL_URL=mysql://root@127.0.0.1:3306/campus npm run test:all
 ```
 
-**测试合计 71 项断言（48 agents + 10 smoke + 13 cache），全 mock / 本地引擎，无需任何 API Key。**
+**测试合计 92 项断言（48 agents + 21 orchestrator + 10 smoke + 13 cache），全 mock / 本地引擎，无需任何 API Key。**
 （缓存 13 项 = **内存 7 + 真 Redis 6**；无 Redis 环境时后 6 项自动 SKIP，实跑报 7 项 —— 属预期行为，非失败。）
 
 ### 智能体测试覆盖了什么
@@ -69,6 +72,7 @@ npm run test:all      # 上面几项一起跑
 | 检索注入防护 | 查询里塞 `'; DROP TABLE posts;--` 不影响库与后续检索（全程参数化） |
 | 真的在调模型 | 有 Key 时断言请求打到 `/chat/completions`、带 `response_format=json_object`、对模型返回的非法分类做白名单校验 |
 | 降级不中断 | 模型 500 → 自动回落规则兜底，接口不报错 |
+| 编排器与协作（test_orchestrator.mjs） | 显式管线逐智能体 trace + 步数上限；**Match→Search 工具复用**（fetch 调用顺序可证）与 **Audit→Guide 改写建议**（有 Key 模型版 / 无 Key 规则版 + audit_log 留痕）；Match v2 的 LLM 重排采纳模型序、低置信(<0.6)回退、非法 id 过滤、模型 500 降级 |
 
 ### 修复的两个真 bug（此前「文档与实现相反」）
 
@@ -136,13 +140,15 @@ campus-mutual-aid/
 ├── backend/
 │   ├── server.js          # Express 入口 + REST API（/api/chat、/api/recommend 等）
 │   ├── src/
-│   │   ├── agents.js      # ★ 5 个智能体（Router/Post/Audit/Search/Match）
+│   │   ├── agents.js      # ★ 5 个智能体（Router/Post/Audit/Search/Match；撮合 v2 = LLM 重排 + 置信回退）
+│   │   ├── orchestrator.js # ★ 编排器：显式管线 + 逐智能体 trace + 步数上限
 │   │   ├── env.js         # ★ .env 引导模块（必须是 server.js 的第一个 import）
 │   │   ├── llm.js         # 大模型统一封装（DeepSeek + 规则兜底）
 │   │   ├── auth.js        # JWT 鉴权
 │   │   └── db.js          # SQLite 初始化（users/posts/comments/dm 等表）
 │   ├── seed_demo.js       # 幂等演示数据脚本（可执行，也可被 db.js 作为模块调用）
 │   ├── test_agents.mjs    # ★ 5 个智能体行为测试 + 环境变量加载回归（48 项）
+│   ├── test_orchestrator.mjs # ★ 编排器与智能体协作行为测试（21 项：trace/Match→Search/Audit→Guide/LLM 重排回退）
 │   ├── test_smoke.mjs     # 全链路冒烟测试（10 项）
 │   └── test_cache.mjs     # 缓存层测试（13 项：内存后端 + 真 Redis 往返 / TTL / 穿透防护 / 故障降级）
 └── frontend/
