@@ -8,6 +8,7 @@ import {
 import {
   routeIntentRule, guidePostRule, auditPostRule, auditHits, searchPostsRule, extractSearchKeywords,
   matchPostsRule, claimSim, completeSim, pipelineTrace,
+  FSM_STATES, FSM_TRANSITIONS, FSM_CREDIT_NOTE, fsmTransition, fsmRace,
 } from './core.mjs';
 
 const MAX_BODY = 100_000;
@@ -231,6 +232,22 @@ async function preview(body) {
       const post = merged.find((p) => p.id === postId);
       return { ok: true, action, ...completeSim(post) };
     }
+    case 'fsm': {
+      // 状态机单步迁移：图上的事件点击走这里，与并发演示同一套条件更新语义
+      const state = str(body.state, 'state', 20);
+      const event = str(body.event, 'event', 20);
+      if (!FSM_STATES.some((s) => s.id === state)) throw new Error(`未知状态：${state}`);
+      const num = (v) => (v == null ? null : Number(v));
+      const ctx = { authorId: num(body.authorId), actorId: num(body.actorId), acceptedBy: num(body.acceptedBy), overdue: !!body.overdue };
+      return { ok: true, action, ...fsmTransition(state, event, ctx) };
+    }
+    case 'fsmRace': {
+      const first = Number(body.firstUserId != null ? body.firstUserId : (user ? user.id : NaN));
+      const second = Number(body.secondUserId != null ? body.secondUserId : first + 1);
+      if (!Number.isInteger(first) || !Number.isInteger(second)) throw new Error('fsmRace 需要整数 firstUserId/secondUserId');
+      const authorId = body.authorId == null ? null : Number(body.authorId);
+      return { ok: true, action, ...fsmRace({ authorId, firstUserId: first, secondUserId: second }) };
+    }
     case 'pipeline': {
       const text = str(body.text, 'text', 500);
       return { ok: true, action, ...pipelineTrace(text, { user, demoPosts: demos, now }) };
@@ -257,6 +274,7 @@ export async function handler({ request }) {
       if (path === '/api/posts') return json(200, boardPosts(url));
       if (path === '/api/top-helpers') return json(200, { ok: true, list: topHelpers() });
       if (path === '/api/rules') return json(200, { ok: true, ...RULES });
+      if (path === '/api/fsm') return json(200, { ok: true, states: FSM_STATES, transitions: FSM_TRANSITIONS, creditNote: FSM_CREDIT_NOTE });
       if (path === '/api/categories') return json(200, { ok: true, categories: CATEGORIES });
       if (path.startsWith('/api/users/')) {
         const u = userById(Number(path.split('/').pop()));

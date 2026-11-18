@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>校园互助平台 · Hack4Good 参赛演示</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f6fed'/%3E%3Ctext x='16' y='22' font-size='16' font-family='sans-serif' fill='white' text-anchor='middle'%3E%E4%BA%92%3C/text%3E%3C/svg%3E">
-<meta name="description" content="校园互助平台参赛公开演示：5 智能体流水线（路由/发帖引导/检索/审核/撮合）、信用分与互助榜、并发接单状态机模拟、审核开关对照。演示视图不写公开库，持久社区能力在本地完整版。">
+<meta name="description" content="校园互助平台参赛公开演示：5 智能体流水线（路由/发帖引导/检索/审核/撮合）、信用分与互助榜、可点击状态机图（图即控制面板）并发接单演示、审核开关对照。演示视图不写公开库，持久社区能力在本地完整版。">
 <meta name="cma-mode" content="edge">
 <style>
 :root{
@@ -121,6 +121,52 @@ mark.hit i{color:#8c231c}
 .tstep.win .rows{color:#2e7d32}
 .tstep.lose .rows{color:var(--red)}
 @keyframes stepin{to{opacity:1;transform:none}}
+/* ---- FSM 状态机图（图即控制面板：手写 SVG，无库）---- */
+.fsm-hint{display:inline-flex;align-items:center;gap:6px;background:var(--amber-soft);border:1px solid #ecd9b8;color:#7c4a03;border-radius:999px;padding:2px 12px;font-size:12px;margin:6px 0 8px}
+.fsm-hint .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);animation:fsmpulse 1.6s ease infinite}
+@keyframes fsmpulse{0%,100%{opacity:1}50%{opacity:.25}}
+#fsmSvg{width:100%;height:auto;display:block;background:#fbfaf7;border:1px solid var(--line);border-radius:12px}
+.fsm-state rect.box{fill:#fff;stroke:#c8cfd6;stroke-width:1.6;transition:fill .25s,stroke .25s}
+.fsm-state rect.inner{fill:none;stroke:#c8cfd6;stroke-width:1}
+.fsm-state text.sid{font-size:14px;font-weight:700;fill:var(--ink);font-family:Consolas,Menlo,monospace}
+.fsm-state text.slabel{font-size:10px;fill:var(--muted)}
+.fsm-state.visited rect.box{stroke:var(--teal)}
+.fsm-state.visited rect.inner{stroke:var(--teal)}
+.fsm-state.cur rect.box{fill:var(--amber-soft);stroke:var(--amber);stroke-width:2.6;filter:drop-shadow(0 0 5px rgba(180,83,9,.4))}
+.fsm-state.cur text.sid{fill:var(--amber)}
+.fsm-edge{fill:none;stroke:#b9c2cc;stroke-width:1.8;marker-end:url(#fsmArrow);transition:stroke .25s}
+.fsm-edge.hist{stroke:var(--teal);stroke-width:2.6;marker-end:url(#fsmArrowHist)}
+.fsm-edge.win{stroke:#2e7d32;stroke-width:3;marker-end:url(#fsmArrowWin)}
+.fsm-guard{font-size:9px;fill:var(--muted)}
+.fsm-ev{cursor:pointer;transform-box:fill-box;transform-origin:center}
+.fsm-ev rect{fill:#fff;stroke:var(--teal);stroke-width:1.4;transition:fill .15s}
+.fsm-ev:hover rect,.fsm-ev:focus rect{fill:var(--teal-soft)}
+.fsm-ev:focus{outline:none}
+.fsm-ev:focus rect{stroke-width:2.4}
+.fsm-ev text.ev{font-size:11.5px;font-weight:700;fill:var(--teal)}
+.fsm-ev text.g{font-size:8.5px;fill:var(--muted)}
+.fsm-ev.deny rect{fill:var(--red-soft);stroke:var(--red);stroke-width:2}
+.fsm-ev.deny text.ev{fill:var(--red)}
+.fsm-ev.deny{animation:fsmshake .5s ease}
+@keyframes fsmshake{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+.fsm-tok{stroke:#fff;stroke-width:2;opacity:0}
+.fsm-tok.lose{animation:fsmshake .5s ease}
+.fsm-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-top:6px}
+.fsm-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.fsm-ctl{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px;font-size:12.5px;color:var(--muted)}
+.fsm-ctl label{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+.fsm-ctl input[type=range]{width:90px;accent-color:var(--teal)}
+.fsm-ctl input[type=checkbox]{accent-color:var(--amber)}
+#fsmReadout{margin-top:10px}
+#fsmReadout code{display:block;font-size:11.5px;background:rgba(255,255,255,.65);border-radius:6px;padding:4px 8px;margin-top:4px;word-break:break-all;font-family:Consolas,Menlo,monospace}
+.fsm-credit{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+@media(max-width:520px){.fsm-credit{grid-template-columns:1fr}}
+.fsm-cwho{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--card);font-size:13px}
+.fsm-cwho b{font-size:17px;color:var(--amber)}
+.fsm-cwho .delta{font-size:12px;font-weight:700;margin-left:6px}
+.fsm-cwho .delta.up{color:#2e7d32}
+.fsm-cwho .delta.down{color:var(--red)}
+.fsm-cwho .role{font-size:11px;color:var(--muted);display:block}
 /* ---- 审核开关 ---- */
 .switch{border:1px solid var(--teal);background:var(--teal);color:#fff;border-radius:999px;padding:6px 16px;font-size:13px;cursor:pointer}
 .switch.off{background:var(--card);color:var(--red);border-color:var(--red)}
@@ -181,9 +227,97 @@ mark.hit i{color:#8c231c}
         <div id="quickMatchOut"></div>
       </div>
       <div class="card hot">
-        <h3>并发接单 · 状态机模拟<span class="demo-tag">演示重算 · 不写公开库</span></h3>
-        <p class="hint">本地完整版把接单包在事务里：<code>UPDATE ... WHERE status='open'</code>。两个请求同时看到「可接」，条件更新串行落盘——<b>受影响行数=1 抢到，=0 已被抢（409）</b>。点按钮看状态机逐步推演。</p>
-        <div class="actions"><button class="btn warn" id="raceGo">模拟两人同时抢一单</button></div>
+        <h3>并发接单 · 状态机控制面板<span class="demo-tag">演示重算 · 不写公开库</span></h3>
+        <p class="hint">图即 UI：每条边是一条条件更新 <code>UPDATE ... WHERE status=当前态</code>，<b>受影响行数=1 才迁移</b>。guard 不满足或非法迁移会红色抖动并给出解释。claimed 即库里的 accepted。</p>
+        <span class="fsm-hint"><span class="dot"></span>点图玩：直接点边上的事件按钮（抢单 / 完成 / 取消 / 超时）推进状态机，亲手制造并发冲突</span>
+        <svg id="fsmSvg" viewBox="0 0 560 350" role="group" aria-label="接单状态机图：点事件按钮推进状态">
+          <defs>
+            <marker id="fsmArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b9c2cc"/></marker>
+            <marker id="fsmArrowHist" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0f766e"/></marker>
+            <marker id="fsmArrowWin" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2e7d32"/></marker>
+          </defs>
+          <!-- 边（条件更新路径） -->
+          <path id="fsmEdgeClaim" class="fsm-edge" d="M 114 88 L 228 88"/>
+          <path id="fsmEdgeComplete" class="fsm-edge" d="M 334 88 L 448 88"/>
+          <path id="fsmEdgeCancelOpen" class="fsm-edge" d="M 64 112 C 64 200, 130 230, 158 256"/>
+          <path id="fsmEdgeCancelClaimed" class="fsm-edge" d="M 262 112 C 262 180, 210 220, 192 256"/>
+          <path id="fsmEdgeTimeout" class="fsm-edge" d="M 306 112 C 306 180, 380 220, 398 256"/>
+          <text class="fsm-guard" x="172" y="110" text-anchor="middle">affected=1 才迁移</text>
+          <text class="fsm-guard" x="392" y="110" text-anchor="middle">affected=1 才迁移</text>
+          <!-- 状态节点 -->
+          <g class="fsm-state cur" id="fsmStateOpen" data-state="open">
+            <rect class="box" x="14" y="64" width="100" height="48" rx="10"/>
+            <text class="sid" x="64" y="85" text-anchor="middle">open</text>
+            <text class="slabel" x="64" y="101" text-anchor="middle">可接单</text>
+          </g>
+          <g class="fsm-state" id="fsmStateClaimed" data-state="claimed">
+            <rect class="box" x="234" y="64" width="100" height="48" rx="10"/>
+            <text class="sid" x="284" y="85" text-anchor="middle">claimed</text>
+            <text class="slabel" x="284" y="101" text-anchor="middle">进行中（accepted）</text>
+          </g>
+          <g class="fsm-state" id="fsmStateCompleted" data-state="completed">
+            <rect class="box" x="454" y="64" width="100" height="48" rx="10"/>
+            <rect class="inner" x="459" y="69" width="90" height="38" rx="6"/>
+            <text class="sid" x="504" y="85" text-anchor="middle">completed</text>
+            <text class="slabel" x="504" y="101" text-anchor="middle">已完成 · 终态</text>
+          </g>
+          <g class="fsm-state" id="fsmStateCancelled" data-state="cancelled">
+            <rect class="box" x="124" y="262" width="100" height="48" rx="10"/>
+            <rect class="inner" x="129" y="267" width="90" height="38" rx="6"/>
+            <text class="sid" x="174" y="283" text-anchor="middle">cancelled</text>
+            <text class="slabel" x="174" y="299" text-anchor="middle">已取消 · 终态</text>
+          </g>
+          <g class="fsm-state" id="fsmStateTimeout" data-state="timeout">
+            <rect class="box" x="354" y="262" width="100" height="48" rx="10"/>
+            <rect class="inner" x="359" y="267" width="90" height="38" rx="6"/>
+            <text class="sid" x="404" y="283" text-anchor="middle">timeout</text>
+            <text class="slabel" x="404" y="299" text-anchor="middle">已超时 · 终态</text>
+          </g>
+          <!-- 事件按钮（可点击驱动无状态模拟） -->
+          <g class="fsm-ev" id="fsmEvClaim" data-event="claim" data-from="open" role="button" tabindex="0" aria-label="事件：抢单 claim">
+            <rect x="120" y="13" width="104" height="34" rx="8"/>
+            <text class="ev" x="172" y="27" text-anchor="middle">抢单 claim</text>
+            <text class="g" x="172" y="40" text-anchor="middle">guard: open ∧ 非本人</text>
+          </g>
+          <g class="fsm-ev" id="fsmEvComplete" data-event="complete" data-from="claimed" role="button" tabindex="0" aria-label="事件：完成 complete">
+            <rect x="340" y="13" width="104" height="34" rx="8"/>
+            <text class="ev" x="392" y="27" text-anchor="middle">完成 complete</text>
+            <text class="g" x="392" y="40" text-anchor="middle">guard: 操作者=接单人</text>
+          </g>
+          <g class="fsm-ev" id="fsmEvCancelOpen" data-event="cancel" data-from="open" role="button" tabindex="0" aria-label="事件：发帖人取消 cancel">
+            <rect x="26" y="173" width="104" height="34" rx="8"/>
+            <text class="ev" x="78" y="187" text-anchor="middle">取消 cancel</text>
+            <text class="g" x="78" y="200" text-anchor="middle">guard: 发帖人 · 信用−1</text>
+          </g>
+          <g class="fsm-ev" id="fsmEvCancelClaimed" data-event="cancel" data-from="claimed" role="button" tabindex="0" aria-label="事件：接单后取消 cancel">
+            <rect x="210" y="179" width="104" height="34" rx="8"/>
+            <text class="ev" x="262" y="193" text-anchor="middle">取消 cancel</text>
+            <text class="g" x="262" y="206" text-anchor="middle">guard: 帖主/接单人 · −2</text>
+          </g>
+          <g class="fsm-ev" id="fsmEvTimeout" data-event="timeout" data-from="claimed" role="button" tabindex="0" aria-label="事件：超时 timeout">
+            <rect x="346" y="179" width="104" height="34" rx="8"/>
+            <text class="ev" x="398" y="193" text-anchor="middle">超时 timeout</text>
+            <text class="g" x="398" y="206" text-anchor="middle">guard: now&gt;时限 · −3</text>
+          </g>
+          <!-- 并发 token 层 -->
+          <circle id="fsmTokA" class="fsm-tok" r="7" cx="114" cy="88" fill="#0f766e"/>
+          <circle id="fsmTokB" class="fsm-tok" r="7" cx="114" cy="88" fill="#1d4ed8"/>
+        </svg>
+        <div class="fsm-legend">
+          <span><i style="background:var(--amber-soft);border:2px solid var(--amber)"></i>当前状态</span>
+          <span><i style="background:var(--teal)"></i>历史路径描边</span>
+          <span><i style="background:#0f766e;border-radius:50%"></i>token · 我</span>
+          <span><i style="background:#1d4ed8;border-radius:50%"></i>token · 另一位同学</span>
+        </div>
+        <div class="fsm-ctl">
+          <button class="btn warn" id="raceGo">并发冲突：两人同时抢单</button>
+          <button class="btn ghost" id="fsmReset">重置到 open</button>
+          <label>速度 <input type="range" id="fsmSpeed" min="0.5" max="2" step="0.25" value="1"><span id="fsmSpeedVal">1×</span></label>
+          <label><input type="checkbox" id="fsmOverdue"> 已超约定时限</label>
+        </div>
+        <div id="fsmReadout" aria-live="polite"></div>
+        <div class="fsm-credit" id="fsmCredit"></div>
+        <p class="hint" id="fsmRules" style="margin-top:6px"></p>
         <div id="raceOut"></div>
       </div>
       <div class="card hot">
@@ -494,25 +628,159 @@ function quickMatch(){
 }
 $('quickMatch').addEventListener('click', quickMatch);
 
-/* ---- 并发接单状态机模拟 ---- */
-$('raceGo').addEventListener('click', function(){
-  var b = $('raceGo'); b.disabled = true;
-  $('raceOut').innerHTML = '<div class="hint" style="margin-top:8px">服务端无状态模拟两个并发 claim…</div>';
-  preview({ action:'claim', postId: 1, user: userPayload(), mode:'race', secondUserId: me.id+1 }).then(function(r){
-    if (!r.ok || !r.results) { $('raceOut').innerHTML = '<div class="result bad">'+esc(r.error||'模拟失败')+'</div>'; return; }
-    var a = r.results[0], c = r.results[1];
-    var sql = a.sql || "UPDATE posts SET status='accepted', accepted_by=? WHERE id=? AND status='open'";
-    var steps = [
-      { cls:'snap', html:'<b>T0 · 事务快照</b>　帖子 #1「帮忙代拿外卖到3栋」status=<b>open</b>。'+esc(me.nickname)+'与另一位同学同时读到「可接单」。' },
-      { cls: a.ok?'win':'lose', html:'<b>T1 · '+esc(me.nickname)+' 条件更新落盘</b>　<span class="rows">受影响行数='+(a.affectedRows!=null?a.affectedRows:'—')+'</span> → '+(a.ok?'HTTP 200 接单成功，status=open→accepted':'HTTP '+a.code+' '+esc(a.error||''))+'<code>'+esc(sql)+'</code>' },
-      { cls: c.ok?'win':'lose', html:'<b>T2 · 另一位同学 条件更新落盘</b>　快照里仍是 open，但真实状态已变：<span class="rows">受影响行数='+(c.affectedRows!=null?c.affectedRows:'—')+'</span> → '+(c.ok?'HTTP 200 接单成功':'HTTP '+c.code+' '+esc(c.error||''))+'<code>'+esc(sql)+'</code>' },
-      { cls:'snap', html:'<b>T3 · 终态</b>　accepted_by='+esc(me.nickname)+'，只有一单成交。先查后改会双写翻车；条件更新把「判断+写入」钉死在同一条 SQL 里（本地完整版包在事务中，changes=0 即 409）。' }
-    ];
-    $('raceOut').innerHTML = '<div class="timeline">'+steps.map(function(s){ return '<div class="tstep '+s.cls+'">'+s.html+'</div>'; }).join('')+'</div>'
-      + '<div class="result info">演示视图：服务端无状态推演，不写公开库。本地完整版用同一条条件更新真实防并发（test_smoke 有并发断言）。</div>';
-  }).catch(function(e){ $('raceOut').innerHTML = '<div class="result bad">'+esc(e.message)+'</div>'; })
-    .finally(function(){ b.disabled = false; });
+/* ---- 并发接单 · FSM 图即控制面板（点图玩；迁移判定全部走 core 同源 handler）---- */
+var FSM_AUTHOR = 2; // 种子发帖人（阿杰），信用基线取自 /api/users/2
+var fsm = { state:'open', acceptedBy:null, busy:false, authorName:'阿杰', authorBase:100, helperBase:me.credit, authorCredit:100, helperCredit:me.credit, delta:{ helper:0, author:0 } };
+var FSM_EDGE = { claim:'fsmEdgeClaim', complete:'fsmEdgeComplete', cancelOpen:'fsmEdgeCancelOpen', cancelClaimed:'fsmEdgeCancelClaimed', timeout:'fsmEdgeTimeout' };
+function clampCredit(v){ return Math.max(0, Math.min(200, Math.round(v))); }
+function fsmSpeed(){ return Number($('fsmSpeed').value)||1; }
+function fsmNode(state){ return $('fsmState'+state.charAt(0).toUpperCase()+state.slice(1)); }
+function fsmSetState(state){
+  fsm.state = state;
+  document.querySelectorAll('#fsmSvg .fsm-state').forEach(function(n){ n.classList.toggle('cur', n.dataset.state===state); });
+}
+function fsmReadout(html){ $('fsmReadout').innerHTML = html; }
+function fsmDeny(chip, reason, sql){
+  chip.classList.remove('deny'); void chip.getBoundingClientRect(); chip.classList.add('deny');
+  setTimeout(function(){ chip.classList.remove('deny'); }, 650);
+  fsmReadout('<div class="result bad">'+esc(reason)+(sql?'<code>'+esc(sql)+'</code>':'')+'</div>');
+}
+function renderFsmCredit(){
+  function who(role, name, credit, delta){
+    var d = delta ? '<span class="delta '+(delta>0?'up':'down')+'">'+(delta>0?'+':'')+delta+'</span>' : '';
+    return '<div class="fsm-cwho"><span class="role">'+esc(role)+'</span><span class="ava">'+esc(name.slice(0,1))+'</span> '+esc(name)+' · 信用 <b>'+credit+'</b>'+d+'</div>';
+  }
+  $('fsmCredit').innerHTML = who('发帖人（种子只读基线）', fsm.authorName, fsm.authorCredit, fsm.delta.author)
+    + who('接单人（演示身份 · 与撮合面板同步）', me.nickname, fsm.helperCredit, fsm.delta.helper);
+}
+function fsmApplyCredit(credit){
+  credit = credit || { helper:0, author:0 };
+  fsm.delta = { helper: credit.helper||0, author: credit.author||0 };
+  if (credit.author) fsm.authorCredit = clampCredit(fsm.authorCredit + credit.author);
+  if (credit.helper) {
+    fsm.helperCredit = clampCredit(fsm.helperCredit + credit.helper);
+    me.credit = clampCredit(me.credit + credit.helper); save(); renderMe(); // 信用面板联动（同源 core 增量）
+  }
+  renderFsmCredit();
+}
+function fsmReset(silent){
+  me.credit = clampCredit(me.credit + (fsm.helperBase - fsm.helperCredit)); // 还原演示信用加减
+  fsm.helperCredit = fsm.helperBase; fsm.authorCredit = fsm.authorBase;
+  fsm.delta = { helper:0, author:0 }; fsm.acceptedBy = null;
+  save(); renderMe();
+  document.querySelectorAll('#fsmSvg .fsm-state').forEach(function(n){ n.classList.remove('cur','visited'); });
+  document.querySelectorAll('#fsmSvg .fsm-edge').forEach(function(e){ e.classList.remove('hist','win'); });
+  ['fsmTokA','fsmTokB'].forEach(function(id){ var t=$(id); t.style.opacity=0; t.classList.remove('lose'); t.setAttribute('fill', id==='fsmTokA'?'#0f766e':'#1d4ed8'); });
+  fsmSetState('open');
+  renderFsmCredit();
+  if (!silent) fsmReadout('<div class="result info">已重置到 open：历史路径与演示信用加减已还原。点图上的事件重新开始。</div>');
+}
+function fsmAnimTok(tok, path, dur, cb){
+  var len = path.getTotalLength(), t0 = null;
+  tok.style.opacity = 1;
+  function frame(t){
+    if (t0==null) t0 = t;
+    var k = Math.min(1, (t-t0)/dur);
+    var p = path.getPointAtLength(len*k);
+    tok.setAttribute('cx', p.x); tok.setAttribute('cy', p.y);
+    if (k<1) requestAnimationFrame(frame); else if (cb) cb();
+  }
+  requestAnimationFrame(frame);
+}
+function fsmCtx(event){
+  var actorId;
+  if (event==='claim') actorId = me.id;
+  else if (event==='complete') actorId = fsm.acceptedBy!=null ? fsm.acceptedBy : me.id;
+  else if (event==='cancel') actorId = fsm.state==='open' ? FSM_AUTHOR : (fsm.acceptedBy!=null ? fsm.acceptedBy : me.id);
+  else actorId = FSM_AUTHOR; // timeout 由系统时钟触发
+  return { authorId: FSM_AUTHOR, actorId: actorId, acceptedBy: fsm.acceptedBy, overdue: $('fsmOverdue').checked };
+}
+function fsmCommit(r, ctx){
+  var fromNode = fsmNode(r.from); if (fromNode) fromNode.classList.add('visited');
+  var edge = $(FSM_EDGE[r.transition]); if (edge) edge.classList.add('hist');
+  if (r.event==='claim') fsm.acceptedBy = r.acceptedBy!=null ? r.acceptedBy : ctx.actorId;
+  fsmSetState(r.to);
+  fsmApplyCredit(r.credit);
+  var ct = [];
+  if (r.credit && r.credit.helper) ct.push('接单人信用 '+(r.credit.helper>0?'+':'')+r.credit.helper);
+  if (r.credit && r.credit.author) ct.push('发帖人信用 '+(r.credit.author>0?'+':'')+r.credit.author);
+  fsmReadout('<div class="result ok"><b>'+esc(r.from)+' → '+esc(r.to)+'</b> · 条件更新 <b>受影响行数='+r.affectedRows+'</b> · guard 满足：'+esc(r.guard)
+    + (ct.length?' · '+esc(ct.join('，')):'') + '<code>'+esc(r.sql)+'</code></div>');
+}
+function onFsmEv(chip){
+  if (fsm.busy) return;
+  var event = chip.dataset.event, ctx = fsmCtx(event);
+  preview({ action:'fsm', state: fsm.state, event: event, authorId: ctx.authorId, actorId: ctx.actorId, acceptedBy: ctx.acceptedBy, overdue: ctx.overdue }).then(function(r){
+    if (r.error) { fsmDeny(chip, r.error); return; }
+    if (!r.ok) { fsmDeny(chip, (r.illegal?'非法迁移':'guard 不满足')+' · HTTP '+r.code+' · 受影响行数='+r.affectedRows+' · '+r.reason, r.sql); return; }
+    fsm.busy = true;
+    var tok = $('fsmTokA');
+    tok.setAttribute('fill', '#0f766e');
+    fsmAnimTok(tok, $(FSM_EDGE[r.transition]), 650/fsmSpeed(), function(){
+      fsmCommit(r, ctx);
+      setTimeout(function(){ tok.style.opacity=0; }, 700);
+      fsm.busy = false;
+    });
+  }).catch(function(e){ fsmDeny(chip, e.message); });
+}
+document.querySelectorAll('#fsmSvg .fsm-ev').forEach(function(chip){
+  chip.addEventListener('click', function(){ onFsmEv(chip); });
+  chip.addEventListener('keydown', function(e){ if (e.key==='Enter'||e.key===' ') { e.preventDefault(); onFsmEv(chip); } });
 });
+$('fsmReset').addEventListener('click', function(){ if (!fsm.busy) fsmReset(false); });
+$('fsmSpeed').addEventListener('input', function(){ $('fsmSpeedVal').textContent = fsmSpeed()+'×'; });
+
+/* 并发冲突：两个 token 沿 claim 边同时出发，条件更新串行落盘——一成一拒 */
+function resolveRace(r, ta, tb, b){
+  var a = r.results[0], c = r.results[1];
+  var sql = a.sql || "UPDATE posts SET status='accepted', accepted_by=? WHERE id=? AND status='open'";
+  var fromNode = fsmNode('open'); if (fromNode) fromNode.classList.add('visited');
+  var edge = $('fsmEdgeClaim');
+  edge.classList.add('hist','win');
+  setTimeout(function(){ edge.classList.remove('win'); }, 1300);
+  if (a.ok) { fsm.acceptedBy = me.id; fsmSetState('claimed'); }
+  else if (c.ok) { fsm.acceptedBy = me.id+1; fsmSetState('claimed'); }
+  ta.setAttribute('fill', a.ok?'#2e7d32':'#b3372f');
+  tb.setAttribute('fill', c.ok?'#2e7d32':'#b3372f');
+  if (!a.ok) ta.classList.add('lose');
+  if (!c.ok) tb.classList.add('lose');
+  setTimeout(function(){ ta.style.opacity=0; tb.style.opacity=0; ta.classList.remove('lose'); tb.classList.remove('lose'); }, 1500);
+  fsmReadout(
+    '<div class="result '+(a.ok?'ok':'bad')+'"><b>'+esc(me.nickname)+'</b>：条件更新 <b>受影响行数='+(a.affectedRows!=null?a.affectedRows:'—')+'</b> → '+(a.ok?'HTTP 200 接单成功，open→claimed':'HTTP '+a.code+' '+esc(a.reason||a.error||''))+'<code>'+esc(sql)+'</code></div>'
+    + '<div class="result '+(c.ok?'ok':'bad')+'"><b>另一位同学</b>：条件更新 <b>受影响行数='+(c.affectedRows!=null?c.affectedRows:'—')+'</b> → '+(c.ok?'HTTP 200 接单成功':'HTTP '+c.code+' '+esc(c.reason||c.error||''))+'<code>'+esc(sql)+'</code></div>'
+  );
+  var steps = [
+    { cls:'snap', html:'<b>T0 · 事务快照</b>　帖子 #1「帮忙代拿外卖到3栋」status=<b>open</b>。'+esc(me.nickname)+'与另一位同学同时读到「可接单」。' },
+    { cls: a.ok?'win':'lose', html:'<b>T1 · '+esc(me.nickname)+' 条件更新落盘</b>　<span class="rows">受影响行数='+(a.affectedRows!=null?a.affectedRows:'—')+'</span> → '+(a.ok?'HTTP 200 接单成功，status=open→claimed(accepted)':'HTTP '+a.code+' '+esc(a.reason||a.error||''))+'<code>'+esc(sql)+'</code>' },
+    { cls: c.ok?'win':'lose', html:'<b>T2 · 另一位同学 条件更新落盘</b>　快照里仍是 open，但真实状态已变：<span class="rows">受影响行数='+(c.affectedRows!=null?c.affectedRows:'—')+'</span> → '+(c.ok?'HTTP 200 接单成功':'HTTP '+c.code+' '+esc(c.reason||c.error||''))+'<code>'+esc(sql)+'</code>' },
+    { cls:'snap', html:'<b>T3 · 终态</b>　accepted_by='+esc(a.ok?me.nickname:'另一位同学')+'，只有一单成交。先查后改会双写翻车；条件更新把「判断+写入」钉死在同一条 SQL 里（本地完整版包在事务中，changes=0 即 409）。' }
+  ];
+  $('raceOut').innerHTML = '<div class="timeline">'+steps.map(function(s){ return '<div class="tstep '+s.cls+'">'+s.html+'</div>'; }).join('')+'</div>'
+    + '<div class="result info">演示视图：无状态推演，不写公开库。可反复播放；速度滑杆调 token 动画。本地完整版用同一条条件更新真实防并发（test_smoke 有并发断言）。</div>';
+  fsm.busy = false; b.disabled = false;
+}
+$('raceGo').addEventListener('click', function(){
+  if (fsm.busy) return;
+  fsm.busy = true;
+  var b = $('raceGo'); b.disabled = true;
+  fsmReset(true); // 可重复播放：每次从 open 重新开抢
+  $('raceOut').innerHTML = '';
+  fsmReadout('<div class="result info">两个 token 同时出发：两个事务快照都读到 open，条件更新即将串行落盘…</div>');
+  preview({ action:'fsmRace', authorId: FSM_AUTHOR, firstUserId: me.id, secondUserId: me.id+1 }).then(function(r){
+    if (!r.ok || !r.results) { fsmReadout('<div class="result bad">'+esc(r.error||'模拟失败')+'</div>'); fsm.busy=false; b.disabled=false; return; }
+    var path = $('fsmEdgeClaim'), ta = $('fsmTokA'), tb = $('fsmTokB');
+    ta.setAttribute('fill','#0f766e'); tb.setAttribute('fill','#1d4ed8');
+    var done = 0, dur = 1100/fsmSpeed();
+    function fin(){ if (++done===2) resolveRace(r, ta, tb, b); }
+    fsmAnimTok(ta, path, dur, fin);
+    fsmAnimTok(tb, path, dur, fin);
+  }).catch(function(e){ fsmReadout('<div class="result bad">'+esc(e.message)+'</div>'); fsm.busy=false; b.disabled=false; });
+});
+api('/api/users/'+FSM_AUTHOR).then(function(r){
+  if (r.ok && r.user) { fsm.authorName = r.user.nickname; fsm.authorBase = r.user.credit_score; fsm.authorCredit = r.user.credit_score; renderFsmCredit(); }
+}).catch(function(){});
+api('/api/fsm').then(function(r){ if (r.ok) $('fsmRules').textContent = r.creditNote; }).catch(function(){});
+renderFsmCredit();
 
 /* ---- 审核开/关对照 ---- */
 var cmpData = null, auditOn = true;

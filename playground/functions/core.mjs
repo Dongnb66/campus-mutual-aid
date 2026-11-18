@@ -235,6 +235,110 @@ export function completeSim(post, users = SEED_USERS) {
   };
 }
 
+// ---- FSM 状态机纯函数（「图即控制面板」演示的唯一事实源）----
+// 状态口径：FSM 的 claimed 即数据库 status='accepted'（沿用 claimPostAtomic 语义），
+// open/completed/cancelled 与库一致；timeout 为状态机演示扩展终态（接单后超时未完成）。
+// 迁移语义 = 条件更新：每条边对应一条 UPDATE ... WHERE status=<from>，
+// affectedRows=1 才迁移；guard 不满足或状态不匹配 → affectedRows=0，状态原地不动。
+// 信用口径：complete 的 +5/+2 与 server.js complete 路由同源；
+// 取消/超时扣分为状态机演示扩展（违约治理提案），只作用于浏览器本地演示身份，不写公开库。
+export const FSM_STATES = [
+  { id: 'open', label: '可接单', terminal: false },
+  { id: 'claimed', label: '进行中', terminal: false },
+  { id: 'completed', label: '已完成', terminal: true },
+  { id: 'cancelled', label: '已取消', terminal: true },
+  { id: 'timeout', label: '已超时', terminal: true },
+];
+
+export const FSM_TRANSITIONS = [
+  {
+    id: 'claim', event: 'claim', from: 'open', to: 'claimed',
+    guardText: "status='open' ∧ 非本人帖",
+    sql: CLAIM_SQL, credit: { helper: 0, author: 0 },
+  },
+  {
+    id: 'complete', event: 'complete', from: 'claimed', to: 'completed',
+    guardText: "status='accepted' ∧ 操作者=接单人",
+    sql: "UPDATE posts SET status='completed' WHERE id=? AND status='accepted'",
+    credit: { helper: 5, author: 2 },
+  },
+  {
+    id: 'cancelOpen', event: 'cancel', from: 'open', to: 'cancelled',
+    guardText: "status='open' ∧ 操作者=发帖人",
+    sql: "UPDATE posts SET status='cancelled' WHERE id=? AND status='open'",
+    credit: { helper: 0, author: -1 },
+  },
+  {
+    id: 'cancelClaimed', event: 'cancel', from: 'claimed', to: 'cancelled',
+    guardText: "status='accepted' ∧ 操作者∈{发帖人,接单人}",
+    sql: "UPDATE posts SET status='cancelled' WHERE id=? AND status='accepted'",
+    credit: { helper: -2, author: 0 },
+  },
+  {
+    id: 'timeout', event: 'timeout', from: 'claimed', to: 'timeout',
+    guardText: "status='accepted' ∧ now>约定时限",
+    sql: "UPDATE posts SET status='timeout' WHERE id=? AND status='accepted'",
+    credit: { helper: -3, author: 0 },
+  },
+];
+
+export const FSM_CREDIT_NOTE = '完成：接单人 +5 / 发帖人 +2（与本地 complete 路由同源）；发帖后取消：发帖人 −1；接单后取消：接单人 −2；接单超时：接单人 −3（违约扣分为状态机演示扩展，仅浏览器本地生效）。';
+
+const FSM_ZERO = { helper: 0, author: 0 };
+
+// 单次迁移（纯函数）：state+event+ctx → 条件更新结果。
+// ctx: { authorId, actorId, acceptedBy, overdue }。缺省字段视为不校验该 guard 分量。
+// 返回 ok/affectedRows/from/to/transition/guard/sql/credit；失败分两类：
+//   guardFailed=true：有这条边但 guard 不满足（claim 在非 open 状态即条件更新落空 → 409）；
+//   illegal=true：当前状态根本没有该事件的出边（非法迁移）。
+export function fsmTransition(state, event, ctx = {}) {
+  const base = { event, from: state, to: null, affectedRows: 0, credit: { ...FSM_ZERO } };
+  const t = FSM_TRANSITIONS.find((x) => x.event === event && x.from === state);
+  if (!t) {
+    if (event === 'claim') {
+      // 抢单永远允许尝试：条件更新 WHERE status='open' 匹配 0 行即被抢/已终态
+      return { ...base, ok: false, code: 409, guardFailed: true, guard: FSM_TRANSITIONS[0].guardText, sql: CLAIM_SQL, reason: "条件更新落空：当前状态不是 open（已被抢或已终态），WHERE status='open' 匹配 0 行" };
+    }
+    return { ...base, ok: false, code: 400, illegal: true, reason: `非法迁移：状态「${state}」没有事件「${event}」的出边（终态不可再迁移 / 事件不适用）` };
+  }
+  const fail = (code, reason) => ({ ...base, ok: false, code, guardFailed: true, transition: t.id, guard: t.guardText, sql: t.sql, reason: `guard 不满足：${reason}` });
+  const { authorId, actorId, acceptedBy, overdue } = ctx;
+  if (t.id === 'claim' && actorId != null && authorId != null && actorId === authorId) {
+    return fail(400, '不能接自己的帖（操作者=发帖人）');
+  }
+  if (t.id === 'complete' && actorId != null && acceptedBy != null && actorId !== acceptedBy) {
+    return fail(400, '只有接单人能确认完成（操作者≠accepted_by）');
+  }
+  if (t.id === 'cancelOpen' && actorId != null && authorId != null && actorId !== authorId) {
+    return fail(400, '只有发帖人能取消未接单帖（操作者≠发帖人）');
+  }
+  if (t.id === 'cancelClaimed' && actorId != null && authorId != null && acceptedBy != null && actorId !== authorId && actorId !== acceptedBy) {
+    return fail(400, '接单后只有发帖人或接单人能取消');
+  }
+  if (t.id === 'timeout' && !overdue) {
+    return fail(400, '未超约定时限（now ≤ deadline），超时事件不成立');
+  }
+  return {
+    ...base, ok: true, code: 200, to: t.to, transition: t.id, affectedRows: 1,
+    guard: t.guardText, sql: t.sql, credit: { ...t.credit },
+    acceptedBy: t.id === 'claim' ? (actorId != null ? actorId : null) : (acceptedBy != null ? acceptedBy : null),
+  };
+}
+
+// 并发双抢（纯函数）：两个事务快照都读到 open，条件更新串行落盘——
+// 第一个 affectedRows=1 迁移到 claimed，第二个 affectedRows=0 被 guard 拒（409）。
+export function fsmRace({ authorId = null, firstUserId, secondUserId } = {}) {
+  const snapshot = 'open';
+  const r1 = fsmTransition(snapshot, 'claim', { authorId, actorId: firstUserId });
+  const after1 = r1.ok ? r1.to : snapshot;
+  const r2 = fsmTransition(after1, 'claim', { authorId, actorId: secondUserId });
+  return {
+    snapshot, results: [r1, r2],
+    finalState: r2.ok ? r2.to : after1,
+    acceptedBy: r1.ok ? firstUserId : (r2.ok ? secondUserId : null),
+  };
+}
+
 // ---- 5 智能体流水线：一次输入，展示每个智能体各自的判据与结论 ----
 export function pipelineTrace(text, { user = null, demoPosts = [], now = Date.now() } = {}) {
   const route = routeIntentRule(text);

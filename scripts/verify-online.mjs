@@ -80,7 +80,7 @@ if (mode === 'edge') {
 }
 
 // ---- 2. 全路由状态码 + 逐值对拍 ----
-const GETS = ['/api/health', '/api/stats', '/api/posts', '/api/posts?category=%E4%BB%A3%E6%8B%BF', '/api/posts?q=%E5%BF%AB%E9%80%92', '/api/top-helpers', '/api/rules', '/api/categories', '/api/users/4'];
+const GETS = ['/api/health', '/api/stats', '/api/posts', '/api/posts?category=%E4%BB%A3%E6%8B%BF', '/api/posts?q=%E5%BF%AB%E9%80%92', '/api/top-helpers', '/api/rules', '/api/categories', '/api/users/4', '/api/fsm'];
 for (const p of GETS) {
   const r = await pair('GET', p);
   assert.equal(r.status, 200, p + ' 必须 200');
@@ -114,13 +114,19 @@ const POSTS = [
   { action: 'pipeline', text: '招代考枪手，包过，加微信 abc123', user: me, now: NOW },
   { action: 'board', audit: 'on' },
   { action: 'board', audit: 'off' },
+  { action: 'fsm', state: 'open', event: 'claim', authorId: 2, actorId: 90001 },
+  { action: 'fsm', state: 'claimed', event: 'claim', authorId: 2, actorId: 90002, acceptedBy: 90001 },
+  { action: 'fsm', state: 'open', event: 'complete', authorId: 2, actorId: 90001 },
+  { action: 'fsm', state: 'claimed', event: 'complete', authorId: 2, actorId: 90001, acceptedBy: 90001 },
+  { action: 'fsm', state: 'claimed', event: 'timeout', authorId: 2, actorId: 90001, acceptedBy: 90001, overdue: true },
+  { action: 'fsmRace', authorId: 2, firstUserId: 90001, secondUserId: 90002 },
   { action: 'nope' },
   { action: 'match', user: { id: 1, nickname: 'x' } },
 ];
 const biz = {};
 for (const body of POSTS) {
   const r = await pair('POST', '/api/preview', body);
-  const key = body.action + (body.mode ? ':' + body.mode : '') + (body.postId != null ? ':' + body.postId : '') + (body.audit ? ':' + body.audit : '');
+  const key = body.action + (body.mode ? ':' + body.mode : '') + (body.postId != null ? ':' + body.postId : '') + (body.audit ? ':' + body.audit : '') + (body.state ? ':' + body.state : '') + (body.event ? ':' + body.event : '');
   biz[key] = r;
 }
 ok(`${POSTS.length} 个 preview 请求线上/本地逐值一致（含 board 对照 / 守卫 400）`);
@@ -181,6 +187,25 @@ assert.deepEqual(boardOn.blocked.map((b) => b.id).sort(), [99001, 99002]);
 assert.equal(boardOff.rows.length, 29);
 assert.equal(boardOff.rows.filter((p) => p.compare).length, 2);
 ok('审核开/关对照：开 27 进榜 2 拦截留痕 / 关 29 含违规样本');
+
+const fsmDef = (await pair('GET', '/api/fsm')).body;
+assert.equal(fsmDef.states.length, 5);
+assert.equal(fsmDef.transitions.length, 5);
+const fsmOk = biz['fsm:open:claim'].body;
+assert.equal(fsmOk.ok, true); assert.equal(fsmOk.affectedRows, 1); assert.equal(fsmOk.to, 'claimed');
+assert.match(fsmOk.sql, /WHERE id=\? AND status='open'/);
+const fsmGuard = biz['fsm:claimed:claim'].body;
+assert.equal(fsmGuard.ok, false); assert.equal(fsmGuard.code, 409); assert.equal(fsmGuard.affectedRows, 0);
+const fsmIllegal = biz['fsm:open:complete'].body;
+assert.equal(fsmIllegal.illegal, true); assert.equal(fsmIllegal.affectedRows, 0);
+assert.deepEqual(biz['fsm:claimed:complete'].body.credit, { helper: 5, author: 2 });
+assert.equal(biz['fsm:claimed:timeout'].body.credit.helper, -3);
+const fsmRaceB = biz['fsmRace'].body;
+assert.equal(fsmRaceB.results[0].affectedRows, 1);
+assert.equal(fsmRaceB.results[1].affectedRows, 0);
+assert.equal(fsmRaceB.results[1].code, 409);
+assert.equal(fsmRaceB.finalState, 'claimed');
+ok('FSM 图即控制面板：合法迁移 affected=1 / guard 拒 0(409) / 非法迁移 / 信用增减 / 并发双 claim 仅一成功');
 
 const pubBad = biz['publish'].body;
 assert.equal(pubBad.ok, false);
