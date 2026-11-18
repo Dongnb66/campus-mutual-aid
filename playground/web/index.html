@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>校园互助平台 · Hack4Good 参赛演示</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f6fed'/%3E%3Ctext x='16' y='22' font-size='16' font-family='sans-serif' fill='white' text-anchor='middle'%3E%E4%BA%92%3C/text%3E%3C/svg%3E">
+<meta name="description" content="校园互助平台参赛公开演示：5 智能体流水线（路由/发帖引导/检索/审核/撮合）、信用分与互助榜、并发接单状态机模拟、审核开关对照。演示视图不写公开库，持久社区能力在本地完整版。">
+<meta name="cma-mode" content="edge">
+<style>
+:root{
+  --paper:#f6f4ef; --card:#ffffff; --ink:#22303c; --muted:#6b7a89;
+  --line:#e3ded4; --teal:#0f766e; --teal-soft:#e6f2f0; --amber:#b45309; --amber-soft:#fdf3e3;
+  --red:#b3372f; --red-soft:#fbeae8; --blue:#1d4ed8; --blue-soft:#e8eefc;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif;line-height:1.65}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px 64px}
+header{padding:30px 0 14px}
+.kicker{display:inline-block;font-size:12px;letter-spacing:.14em;color:var(--teal);border:1px solid var(--teal);border-radius:999px;padding:2px 12px;margin-bottom:10px}
+h1{font-size:30px;letter-spacing:.02em}
+.sub{color:var(--muted);margin-top:6px;max-width:780px;font-size:14px}
+.notice{margin-top:12px;background:var(--amber-soft);border:1px solid #ecd9b8;border-radius:10px;padding:9px 14px;font-size:12.5px;color:#7c4a03}
+nav{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 16px;position:sticky;top:0;background:var(--paper);padding:10px 0;z-index:5}
+nav button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 18px;font-size:14px;cursor:pointer}
+nav button.on{background:var(--teal);border-color:var(--teal);color:#fff}
+section.tab{display:none}
+section.tab.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.card.hot{border-color:var(--teal);box-shadow:0 1px 0 var(--teal-soft)}
+h2{font-size:19px;margin-bottom:6px}
+h3{font-size:15px;margin-bottom:8px}
+.hint{color:var(--muted);font-size:13px}
+.demo-tag{display:inline-block;font-size:11px;color:var(--muted);border:1px dashed var(--line);border-radius:6px;padding:0 6px;margin-left:6px;vertical-align:1px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;text-align:center}
+.stat b{display:block;font-size:23px;color:var(--teal)}
+.stat span{font-size:12px;color:var(--muted)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.chips button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 14px;font-size:13px;cursor:pointer;color:var(--ink)}
+.chips button.on{background:var(--teal-soft);border-color:var(--teal);color:var(--teal)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+input[type=text],textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink)}
+textarea{min-height:84px;resize:vertical}
+input:focus,textarea:focus{outline:2px solid var(--teal-soft);border-color:var(--teal)}
+.btn{border:none;background:var(--teal);color:#fff;border-radius:10px;padding:9px 18px;font-size:14px;cursor:pointer}
+.btn.ghost{background:var(--card);color:var(--teal);border:1px solid var(--teal)}
+.btn.warn{background:var(--amber)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.post{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px 16px;margin-bottom:10px}
+.post.badpost{border-color:var(--red);background:#fffafa}
+.post .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.post h4{font-size:15px}
+.badge{display:inline-block;font-size:12px;border-radius:6px;padding:1px 8px;white-space:nowrap}
+.badge.cat{background:var(--teal-soft);color:var(--teal)}
+.badge.open{background:var(--blue-soft);color:var(--blue)}
+.badge.accepted{background:var(--amber-soft);color:var(--amber)}
+.badge.completed{background:#e8f5e9;color:#2e7d32}
+.badge.demo{background:var(--red-soft);color:var(--red)}
+.badge.pass{background:#e8f5e9;color:#2e7d32}
+.badge.block{background:var(--red-soft);color:var(--red)}
+.badge.neutral{background:var(--blue-soft);color:var(--blue)}
+.meta{color:var(--muted);font-size:12.5px;margin-top:6px;display:flex;gap:14px;flex-wrap:wrap}
+.content{font-size:13.5px;margin-top:6px;color:#3d4c5a}
+.author{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px}
+.ava{width:26px;height:26px;border-radius:50%;background:var(--teal);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex:none}
+.credit{color:var(--amber);font-weight:600}
+.actions{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+.result{margin-top:10px;border-radius:10px;padding:10px 12px;font-size:13px}
+.result.ok{background:#e8f5e9;border:1px solid #c8e6c9;color:#2e7d32}
+.result.bad{background:var(--red-soft);border:1px solid #f0cdc9;color:var(--red)}
+.result.info{background:var(--blue-soft);border:1px solid #cdd9f5;color:var(--blue)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:820px){.grid2{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left}
+th{background:var(--teal-soft);color:var(--teal);font-weight:600}
+.score{font-size:20px;font-weight:700;color:var(--teal)}
+.parts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.part{font-size:12px;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:1px 8px;color:var(--muted)}
+.part b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:4px 10px;font-size:13.5px}
+.kv dt{color:var(--muted)}
+.rank{display:flex;align-items:center;gap:10px}
+.rank .no{width:26px;height:26px;border-radius:50%;background:var(--amber-soft);color:var(--amber);font-weight:700;display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex:none}
+footer{margin-top:36px;color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:16px}
+ul.tight{padding-left:20px;font-size:13.5px}
+ul.tight li{margin-bottom:6px}
+.err{color:var(--red);font-size:13px;margin-top:8px}
+.empty{color:var(--muted);font-size:13.5px;padding:18px;text-align:center}
+/* ---- 证据锚点（可点击展开原帖摘录高亮）---- */
+.evbtn{border:1px solid var(--line);background:var(--paper);color:var(--teal);border-radius:8px;padding:2px 10px;font-size:12px;cursor:pointer;margin-top:8px}
+.evbtn::before{content:"▸ ";font-size:11px}
+.evbtn.open::before{content:"▾ "}
+.evbtn.open{background:var(--teal-soft);border-color:var(--teal)}
+.evpanel{display:none;margin-top:8px;border:1px dashed var(--teal);border-radius:10px;padding:10px 12px;background:#fbfdfc;font-size:13px}
+.evpanel.open{display:block}
+.evsrc{font-size:11.5px;color:var(--muted);margin-bottom:4px;letter-spacing:.05em}
+.evtitle{font-weight:600;margin-bottom:4px}
+.evtext{color:#3d4c5a}
+mark{background:#fde68a;color:#7c4a03;border-radius:3px;padding:0 2px}
+mark.hit{background:#f6c6c0;color:#8c231c}
+mark i{font-style:normal;font-size:10px;color:#8a6d1a;margin-left:3px}
+mark.hit i{color:#8c231c}
+.evnotes{list-style:none;margin-top:8px;display:grid;gap:3px}
+.evnotes li{font-size:12.5px;color:var(--muted)}
+.evnotes b{color:var(--teal);font-weight:600;margin-right:6px}
+/* ---- 并发接单状态机时间线 ---- */
+.timeline{margin-top:10px;display:grid;gap:8px}
+.tstep{border:1px solid var(--line);border-left:4px solid var(--muted);border-radius:8px;padding:8px 12px;font-size:12.8px;background:var(--card);opacity:0;transform:translateY(6px);animation:stepin .4s ease forwards}
+.tstep:nth-child(1){animation-delay:.05s}
+.tstep:nth-child(2){animation-delay:.45s}
+.tstep:nth-child(3){animation-delay:.85s}
+.tstep:nth-child(4){animation-delay:1.25s}
+.tstep.win{border-left-color:#2e7d32;background:#f4faf4}
+.tstep.lose{border-left-color:var(--red);background:#fdf6f5}
+.tstep.snap{border-left-color:var(--blue)}
+.tstep b{font-size:12px;letter-spacing:.04em}
+.tstep code{display:block;font-size:11.5px;background:var(--paper);border-radius:6px;padding:4px 8px;margin-top:4px;word-break:break-all;font-family:Consolas,Menlo,monospace}
+.tstep .rows{font-weight:700}
+.tstep.win .rows{color:#2e7d32}
+.tstep.lose .rows{color:var(--red)}
+@keyframes stepin{to{opacity:1;transform:none}}
+/* ---- 审核开关 ---- */
+.switch{border:1px solid var(--teal);background:var(--teal);color:#fff;border-radius:999px;padding:6px 16px;font-size:13px;cursor:pointer}
+.switch.off{background:var(--card);color:var(--red);border-color:var(--red)}
+.cmp-sum{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.cmp-pill{font-size:12.5px;border-radius:8px;padding:3px 10px;border:1px solid var(--line);background:var(--paper)}
+.cmp-pill b{color:var(--teal)}
+.cmp-pill.bad b{color:var(--red)}
+/* ---- 流水线 5 阶段 ---- */
+.stage{position:relative;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:12px 14px 12px 52px;margin-bottom:10px}
+.stage::before{content:"";position:absolute;left:25px;top:44px;bottom:-11px;width:2px;background:var(--line)}
+.stage:last-child::before{display:none}
+.sno{position:absolute;left:12px;top:12px;width:26px;height:26px;border-radius:50%;background:var(--teal);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
+.stage.blocked .sno{background:var(--red)}
+.shead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.shead h3{margin:0;font-size:14.5px}
+.ssum{font-size:12.5px;color:var(--muted);margin-top:2px}
+.stage .evbtn{margin-top:6px}
+.agent-basis{font-size:12.5px;color:var(--muted);margin:2px 0 6px}
+.evpanel pre{font-size:12px;background:var(--paper);border-radius:8px;padding:8px 10px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <span class="kicker">2026 QODER 高校创造力大赛 · HACK4GOOD 技术向善</span>
+  <h1>校园互助平台</h1>
+  <p class="sub">同学之间帮个忙，不该靠翻十个群聊。一句话求助交给五个智能体流水线——路由、发帖引导、检索、审核、撮合——信用分让善意被看见，事务内条件更新让抢单不翻车。首屏右侧 30 秒看完全流程。</p>
+  <div class="notice">公开演示视图：互助榜与达人榜来自只读种子数据；发帖 / 接单 / 撮合 / 审核对照均为无状态演示重算（边缘函数执行，算法与本地完整版同源同权重）。演示身份与演示帖只存在你的浏览器本地，<b>不写公开库</b>。登录、私信、持久发帖等完整社区能力在本地完整版（Node + Express + React，断言测试全绿）。</div>
+</header>
+
+<nav id="nav">
+  <button data-tab="board" class="on">互助榜 · 30秒演示</button>
+  <button data-tab="search">智能检索</button>
+  <button data-tab="match">撮合模拟</button>
+  <button data-tab="pipeline">审核流水线</button>
+  <button data-tab="rules">规则与信用</button>
+</nav>
+
+<section class="tab on" id="tab-board">
+  <div class="stats" id="stats"></div>
+  <div class="grid2">
+    <div>
+      <div class="card">
+        <h3>分类与关键词</h3>
+        <div class="chips" id="catChips"></div>
+        <div class="row">
+          <input type="text" id="boardQ" placeholder="按标题 / 正文过滤，如：快递">
+          <button class="btn ghost" id="boardFilter">过滤</button>
+        </div>
+      </div>
+      <div id="boardList"></div>
+    </div>
+    <div>
+      <div class="card hot">
+        <h3>30 秒演示 · 一键撮合<span class="demo-tag">演示重算 · 不写公开库</span></h3>
+        <p class="hint">Match 智能体按「偏好×3 + 报酬+2 + 信用≥100+2 + 新鲜度」给开放帖打分。每条推荐都带<b>证据锚点</b>，点开看原帖摘录里哪句话挣到了分。</p>
+        <div class="actions"><button class="btn" id="quickMatch">重算撮合（演示身份）</button></div>
+        <div id="quickMatchOut"></div>
+      </div>
+      <div class="card hot">
+        <h3>并发接单 · 状态机模拟<span class="demo-tag">演示重算 · 不写公开库</span></h3>
+        <p class="hint">本地完整版把接单包在事务里：<code>UPDATE ... WHERE status='open'</code>。两个请求同时看到「可接」，条件更新串行落盘——<b>受影响行数=1 抢到，=0 已被抢（409）</b>。点按钮看状态机逐步推演。</p>
+        <div class="actions"><button class="btn warn" id="raceGo">模拟两人同时抢一单</button></div>
+        <div id="raceOut"></div>
+      </div>
+      <div class="card hot">
+        <h3>审核开 / 关 · 榜单对照<span class="demo-tag">内置对照样本</span></h3>
+        <p class="hint">内置 2 条违规对照样本（与公开榜隔离）。审核开：黑名单拦截并留痕；审核关：违规内容混进榜单。拨动开关看差异，拦截结论可点证据锚点看命中词高亮。</p>
+        <div class="row" style="margin-top:8px">
+          <button class="switch" id="auditSwitch" role="switch" aria-checked="true">审核：开</button>
+          <span class="hint" id="cmpState"></span>
+        </div>
+        <div id="compareOut"></div>
+      </div>
+      <div class="card">
+        <h3>互助达人榜</h3>
+        <p class="hint">按完成单数、信用分排序（种子只读口径，与本地 /api/top-helpers 一致）。</p>
+        <div id="helpers" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="tab" id="tab-search">
+  <div class="card">
+    <h2>用一句话找帖</h2>
+    <p class="hint">检索智能体先从自然语言里抽关键词（16 个互助词表），再做参数化匹配——注入字符串只会被当成普通文本。试试「有没有人帮我代拿外卖」。</p>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="searchQ" placeholder="例如：代拿外卖 / 二手自行车 / 图书馆">
+      <button class="btn" id="searchGo">检索</button>
+    </div>
+    <div class="chips" id="searchKw"></div>
+    <div id="searchErr" class="err"></div>
+  </div>
+  <div id="searchList"></div>
+</section>
+
+<section class="tab" id="tab-match">
+  <div class="grid2">
+    <div>
+      <div class="card">
+        <h3>我的演示身份</h3>
+        <div class="row">
+          <span class="ava" id="meAva">张</span>
+          <input type="text" id="meName" maxlength="12" style="max-width:180px" value="张三">
+          <span class="hint">信用 <b class="credit" id="meCredit">100</b> · 演示帖 <b id="meCount">0</b> 条</span>
+        </div>
+        <p class="hint" style="margin-top:8px">身份只存浏览器 localStorage。你发的演示帖会并入撮合重算：既影响你的分类偏好，也作为新帖参与排序。</p>
+      </div>
+      <div class="card">
+        <h3>一句话发演示帖</h3>
+        <textarea id="postText" placeholder="例如：明天下午帮我去图书馆拿个快递，微信 abc123，请你喝奶茶"></textarea>
+        <div class="actions">
+          <button class="btn ghost" id="guideGo">生成草稿</button>
+          <button class="btn" id="publishGo">审核并发布演示帖</button>
+          <button class="btn warn" id="clearDemo">清空演示帖</button>
+        </div>
+        <div id="draftBox"></div>
+        <div id="publishMsg"></div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>撮合排序（与本地 Match Agent 同权重）</h3>
+        <p class="hint">偏好×3 + 报酬+2 + 信用≥100+2 + 新鲜度 max(0, 5−帖龄小时/12)。自己的帖不推荐给自己（与本地一致）；切到同学视角，能看到你刚发的演示帖拿接近 5 的新鲜度分参与排序。每条结论带证据锚点。</p>
+        <div class="chips" id="viewChips">
+          <button data-view="me" class="on">我的视角</button>
+          <button data-view="peer">同学视角（李四）</button>
+        </div>
+        <div class="actions"><button class="btn" id="matchGo">重算撮合排序</button></div>
+      </div>
+      <div id="matchList"></div>
+    </div>
+  </div>
+</section>
+
+<section class="tab" id="tab-pipeline">
+  <div class="card">
+    <h2>五个智能体，各自判据，一次看全</h2>
+    <p class="hint">同一段输入依次经过路由、发帖引导、审核、检索、撮合。公网版不携带模型 Key，走的是与本地无 Key 时完全一致的规则兜底路径；本地配 Key 后同样的判据由大模型增强。每阶段判据可展开，审核结论带命中词证据锚点。</p>
+    <textarea id="pipeText" placeholder="输入一句话，或点下面的示例"></textarea>
+    <div class="actions">
+      <button class="btn" id="pipeGo">跑流水线</button>
+      <button class="btn ghost" data-eg="明天下午帮我去图书馆拿个快递，微信 abc123，请你喝奶茶">正常求助</button>
+      <button class="btn ghost" data-eg="招代考枪手，包过，加微信 abc123">违规内容</button>
+      <button class="btn ghost" data-eg="有没有人明天帮我带饭">检索问句</button>
+      <button class="btn ghost" data-eg="这个平台怎么用，收费吗">平台咨询</button>
+    </div>
+    <div id="pipeErr" class="err"></div>
+  </div>
+  <div id="pipeTrace"></div>
+</section>
+
+<section class="tab" id="tab-rules">
+  <div class="grid2">
+    <div class="card">
+      <h3>信用分规则</h3>
+      <div id="creditRules"></div>
+    </div>
+    <div class="card">
+      <h3>审核判据</h3>
+      <p class="hint" id="auditRule"></p>
+      <h3 style="margin-top:14px">五个智能体分工</h3>
+      <ul class="tight" id="agentList"></ul>
+    </div>
+  </div>
+  <div class="card">
+    <h3>撮合权重</h3>
+    <table id="weightTable"></table>
+  </div>
+  <div class="card">
+    <h3>本地完整版才有（公网演示不假装拥有）</h3>
+    <ul class="tight" id="localOnly"></ul>
+  </div>
+</section>
+
+<footer>
+  校园互助平台 · 2026 Qoder 高校创造力大赛 Hack4Good（技术向善）赛道参赛演示。公开数据为只读种子；演示交互不写公开库。算法与本地完整版同源同权重，本地断言测试保持绿色。
+</footer>
+</div>
+
+<script type="module">
+/* 双模式引导：构建时由 build-playground.mjs 写入 cma-mode 标记。
+   edge：/functions/v1/app/api/* 走边缘函数（Deno.serve(handler)，无数据库依赖）；
+   static（后端配额满的兜底）：把同一份 handler.mjs 动态加载进浏览器，
+   无状态重算在本地执行——算法同源，不写任何公开库。 */
+const nativeFetch = window.fetch.bind(window);
+const modeMeta = document.querySelector('meta[name="cma-mode"]');
+window.__CMA_STATIC = !!(modeMeta && modeMeta.content === 'static');
+if (window.__CMA_STATIC) {
+  const mod = await import('./lib/handler.mjs');
+  window.fetch = function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || String(input);
+    const u = new URL(url, location.href);
+    if (u.pathname.indexOf('/api/') === 0) {
+      return mod.handler({ request: new Request(u.href, init), env: {} });
+    }
+    return nativeFetch(input, init);
+  };
+}
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+var esc = function(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
+var STATUS = { open:'可接单', accepted:'进行中', completed:'已完成', cancelled:'已取消' };
+var CATS = ['全部','代拿','接课','寻物','二手','组队','其他'];
+var API_BASE = window.__CMA_STATIC ? '' : '/functions/v1/app';
+
+var me = loadJSON('cma_demo_user', { id: 90001, nickname: '张三', credit: 100 });
+var demoPosts = loadJSON('cma_demo_posts', []);
+function loadJSON(k, d){ try { var v = JSON.parse(localStorage.getItem(k)); return v==null?d:v; } catch(e){ return d; } }
+function save(){ localStorage.setItem('cma_demo_user', JSON.stringify(me)); localStorage.setItem('cma_demo_posts', JSON.stringify(demoPosts)); }
+
+function api(path){ return fetch(API_BASE + path).then(function(r){ return r.json(); }); }
+function preview(body){
+  return fetch(API_BASE + '/api/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+    .then(function(r){ return r.json(); });
+}
+function userPayload(){ return { id: me.id, nickname: me.nickname, credit: me.credit }; }
+function demoPayload(){ return demoPosts.map(function(p){ return Object.assign({}, p); }); }
+
+/* ---- 证据锚点：统一渲染 + 事件委托展开 ---- */
+var evSeq = 0;
+function marksHTML(text, marks, hitClass){
+  var t = String(text==null?'':text);
+  var ms = (marks||[]).slice().sort(function(a,b){ return a.start-b.start; });
+  var out = '', pos = 0;
+  ms.forEach(function(m){
+    if (m.start < pos || m.end > t.length) return;
+    out += esc(t.slice(pos, m.start));
+    out += '<mark'+(hitClass?' class="'+hitClass+'"':'')+'>'+esc(t.slice(m.start, m.end))+(m.label?'<i>'+esc(m.label)+'</i>':'')+'</mark>';
+    pos = m.end;
+  });
+  out += esc(t.slice(pos));
+  return out;
+}
+function evWrap(inner){
+  var id = 'ev-' + (++evSeq);
+  return '<button class="evbtn" data-ev-toggle="'+id+'" aria-expanded="false">证据锚点</button>'
+    + '<div class="evpanel" id="'+id+'">'+inner+'</div>';
+}
+function matchEvidenceHTML(p){
+  var ev = p.evidence || { excerpt: p.content, title: p.title, marks: [], notes: [] };
+  var titleMarks = (ev.marks||[]).filter(function(m){ return m.in==='title'; });
+  var bodyMarks = (ev.marks||[]).filter(function(m){ return m.in!=='title'; });
+  return '<div class="evsrc">原帖摘录 · #'+p.id+'（高亮 = 得分依据在原文中的位置）</div>'
+    + '<div class="evtitle">'+marksHTML(ev.title!=null?ev.title:p.title, titleMarks)+'</div>'
+    + '<div class="evtext">'+marksHTML(ev.excerpt!=null?ev.excerpt:p.content, bodyMarks)+'</div>'
+    + '<ul class="evnotes">'+(ev.notes||[]).map(function(n){ return '<li><b>'+esc(n.label)+'</b>'+esc(n.detail)+'</li>'; }).join('')+'</ul>';
+}
+function auditEvidenceHTML(text, hits, reason){
+  return '<div class="evsrc">原文摘录（红色高亮 = 黑名单命中词）</div>'
+    + '<div class="evtext">'+marksHTML(text, (hits||[]).map(function(h){ return { start:h.start, end:h.end, label:'命中' }; }), 'hit')+'</div>'
+    + '<ul class="evnotes"><li><b>结论</b>'+esc(reason||'')+'</li></ul>';
+}
+document.addEventListener('click', function(e){
+  var t = e.target.closest ? e.target.closest('[data-ev-toggle]') : null;
+  if (!t) return;
+  var panel = $(t.getAttribute('data-ev-toggle'));
+  if (!panel) return;
+  var open = panel.classList.toggle('open');
+  t.classList.toggle('open', open);
+  t.setAttribute('aria-expanded', open ? 'true' : 'false');
+});
+
+/* ---- tabs ---- */
+var navBtns = document.querySelectorAll('#nav button');
+navBtns.forEach(function(b){
+  b.addEventListener('click', function(){
+    navBtns.forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    document.querySelectorAll('section.tab').forEach(function(s){ s.classList.remove('on'); });
+    $('tab-'+b.dataset.tab).classList.add('on');
+  });
+});
+
+/* ---- board ---- */
+var boardCat = '全部';
+function renderStats(s){
+  var items = [ ['互助用户', s.users], ['互助帖', s.posts], ['可接单', s.open], ['进行中', s.accepted], ['已完成', s.completed], ['累计浏览', s.views] ];
+  $('stats').innerHTML = items.map(function(it){ return '<div class="stat"><b>'+it[1]+'</b><span>'+it[0]+'</span></div>'; }).join('');
+}
+function renderChips(){
+  $('catChips').innerHTML = CATS.map(function(c){ return '<button data-cat="'+c+'"'+(c===boardCat?' class="on"':'')+'>'+c+'</button>'; }).join('');
+  document.querySelectorAll('#catChips button').forEach(function(b){
+    b.addEventListener('click', function(){ boardCat = b.dataset.cat; renderChips(); loadBoard(); });
+  });
+}
+function postCard(p, withActions){
+  var h = '<div class="post'+(p.compare?' badpost':'')+'" data-pid="'+p.id+'"><div class="top"><h4>'+esc(p.title)+'</h4><span>'
+    + '<span class="badge cat">'+esc(p.category)+'</span> <span class="badge '+esc(p.status)+'">'+(STATUS[p.status]||esc(p.status))+'</span>'
+    + (p.compare?' <span class="badge demo">违规对照样本</span>':(p.demo?' <span class="badge demo">演示帖</span>':'')) + '</span></div>'
+    + '<div class="content">'+esc(p.content)+'</div>'
+    + '<div class="meta"><span>报酬：'+esc(p.reward||'—')+'</span><span>地点：'+esc(p.location||'—')+'</span><span>时间：'+esc(p.expected_time||'—')+'</span></div>'
+    + '<div class="author"><span class="ava">'+esc((p.author||'?').slice(0,1))+'</span><span>'+esc(p.author||'匿名')+'</span><span class="credit">信用 '+esc(p.author_credit)+'</span></div>';
+  if (withActions && p.status==='open' && !p.compare) h += '<div class="actions"><button class="btn ghost act-claim">接单演示（模拟两人同时抢单）</button></div>';
+  if (withActions && p.status==='accepted') h += '<div class="actions"><button class="btn ghost act-complete">完成演示（看信用加分）</button></div>';
+  h += '<div class="act-out"></div></div>';
+  return h;
+}
+function claimResultHTML(x, who){
+  if (x.ok) return '<div class="result ok">'+esc(who)+'：接单成功 · 条件更新<b>受影响行数='+x.affectedRows+'</b>（status=open→accepted，HTTP '+x.code+'）</div>';
+  if (x.code===409) return '<div class="result bad">'+esc(who)+'：HTTP '+x.code+' · '+esc(x.error)+' · 条件更新<b>受影响行数='+x.affectedRows+'</b>（快照里是 open，落盘时已被抢）</div>';
+  return '<div class="result bad">'+esc(who)+'：HTTP '+x.code+' · '+esc(x.error)+'</div>';
+}
+function bindPostActions(root){
+  root.querySelectorAll('.act-claim').forEach(function(b){
+    b.addEventListener('click', function(){
+      var card = b.closest('.post'); var pid = Number(card.dataset.pid);
+      b.disabled = true;
+      preview({ action:'claim', postId: pid, user: userPayload(), demoPosts: demoPayload(), mode:'race', secondUserId: me.id+1 })
+        .then(function(r){
+          var out = card.querySelector('.act-out');
+          if (!r.ok) { out.innerHTML = '<div class="result bad">'+esc(r.error)+'</div>'; return; }
+          out.innerHTML = r.results.map(function(x, i){ return claimResultHTML(x, i===0 ? me.nickname : '另一位同学'); }).join('')
+            + '<div class="result info">演示重算，不改公开榜；本地完整版在事务里执行同一条条件更新。</div>';
+        })
+        .catch(function(e){ card.querySelector('.act-out').innerHTML = '<div class="result bad">'+esc(e.message)+'</div>'; })
+        .finally(function(){ b.disabled = false; });
+    });
+  });
+  root.querySelectorAll('.act-complete').forEach(function(b){
+    b.addEventListener('click', function(){
+      var card = b.closest('.post'); var pid = Number(card.dataset.pid);
+      b.disabled = true;
+      preview({ action:'complete', postId: pid })
+        .then(function(r){
+          var out = card.querySelector('.act-out');
+          if (!r.ok || r.error) { out.innerHTML = '<div class="result bad">'+esc(r.error||'失败')+'</div>'; return; }
+          out.innerHTML = '<div class="result ok">接单人 '+esc(r.helper.nickname)+'：信用 '+r.helper.before+' → '+r.helper.after+'（+5），完成数 +1<br>发帖人 '+esc(r.author.nickname)+'：信用 '+r.author.before+' → '+r.author.after+'（+2）</div><div class="result info">演示重算，不改公开榜；本地完整版会把这两笔加分写进数据库并通知双方。</div>';
+        })
+        .catch(function(e){ card.querySelector('.act-out').innerHTML = '<div class="result bad">'+esc(e.message)+'</div>'; })
+        .finally(function(){ b.disabled = false; });
+    });
+  });
+}
+function loadBoard(){
+  var q = $('boardQ').value.trim();
+  var url = '/api/posts?category='+encodeURIComponent(boardCat)+(q?'&q='+encodeURIComponent(q):'');
+  api(url).then(function(rows){
+    $('boardList').innerHTML = rows.length ? rows.map(function(p){ return postCard(p, true); }).join('') : '<div class="empty">没有匹配的帖子</div>';
+    bindPostActions($('boardList'));
+  });
+}
+$('boardFilter').addEventListener('click', loadBoard);
+$('boardQ').addEventListener('keydown', function(e){ if(e.key==='Enter') loadBoard(); });
+
+function loadHelpers(){
+  api('/api/top-helpers').then(function(r){
+    $('helpers').innerHTML = r.list.map(function(u, i){
+      return '<div class="author" style="margin-top:8px"><span class="rank"><span class="no">'+(i+1)+'</span></span><span class="ava">'+esc(u.nickname.slice(0,1))+'</span><span>'+esc(u.nickname)+'</span><span class="credit">信用 '+u.credit_score+'</span><span class="hint">完成 '+u.completed_count+' 单</span></div>';
+    }).join('');
+  });
+}
+
+/* ---- 首屏一键撮合（top3 + 证据锚点）---- */
+function matchCardHTML(p, i){
+  return '<div class="post"><div class="rank"><span class="no">'+(i+1)+'</span><h4 style="flex:1">'+esc(p.title)+'</h4><span class="score">'+p.score.toFixed(1)+'</span></div>'
+    + '<div class="parts"><span class="part">偏好 <b>+'+p.parts.pref+'</b></span><span class="part">报酬 <b>+'+p.parts.reward+'</b></span><span class="part">信用 <b>+'+p.parts.credit+'</b></span><span class="part">新鲜度 <b>+'+(Math.round(p.parts.fresh*10)/10)+'</b></span>'
+    + (p.demo?'<span class="badge demo">演示帖</span>':'') + '</div>'
+    + '<div class="author"><span class="ava">'+esc((p.author||'?').slice(0,1))+'</span><span>'+esc(p.author)+'</span><span class="credit">信用 '+esc(p.author_credit)+'</span><span class="hint">'+esc(p.category)+' · '+esc(p.location||'—')+'</span></div>'
+    + evWrap(matchEvidenceHTML(p)) + '</div>';
+}
+function quickMatch(){
+  $('quickMatchOut').innerHTML = '<div class="hint" style="margin-top:8px">撮合重算中…</div>';
+  preview({ action:'match', user: userPayload(), demoPosts: demoPayload(), limit: 3, now: Date.now() }).then(function(r){
+    if (!r.ok) { $('quickMatchOut').innerHTML = '<div class="result bad">'+esc(r.error)+'</div>'; return; }
+    $('quickMatchOut').innerHTML = r.results.map(matchCardHTML).join('')
+      + '<p class="hint" style="margin-top:6px">去「撮合模拟」发一条演示帖，你的分类偏好会立刻改变排序。演示重算，不写公开库。</p>';
+  }).catch(function(e){ $('quickMatchOut').innerHTML = '<div class="result bad">'+esc(e.message)+'</div>'; });
+}
+$('quickMatch').addEventListener('click', quickMatch);
+
+/* ---- 并发接单状态机模拟 ---- */
+$('raceGo').addEventListener('click', function(){
+  var b = $('raceGo'); b.disabled = true;
+  $('raceOut').innerHTML = '<div class="hint" style="margin-top:8px">服务端无状态模拟两个并发 claim…</div>';
+  preview({ action:'claim', postId: 1, user: userPayload(), mode:'race', secondUserId: me.id+1 }).then(function(r){
+    if (!r.ok || !r.results) { $('raceOut').innerHTML = '<div class="result bad">'+esc(r.error||'模拟失败')+'</div>'; return; }
+    var a = r.results[0], c = r.results[1];
+    var sql = a.sql || "UPDATE posts SET status='accepted', accepted_by=? WHERE id=? AND status='open'";
+    var steps = [
+      { cls:'snap', html:'<b>T0 · 事务快照</b>　帖子 #1「帮忙代拿外卖到3栋」status=<b>open</b>。'+esc(me.nickname)+'与另一位同学同时读到「可接单」。' },
+      { cls: a.ok?'win':'lose', html:'<b>T1 · '+esc(me.nickname)+' 条件更新落盘</b>　<span class="rows">受影响行数='+(a.affectedRows!=null?a.affectedRows:'—')+'</span> → '+(a.ok?'HTTP 200 接单成功，status=open→accepted':'HTTP '+a.code+' '+esc(a.error||''))+'<code>'+esc(sql)+'</code>' },
+      { cls: c.ok?'win':'lose', html:'<b>T2 · 另一位同学 条件更新落盘</b>　快照里仍是 open，但真实状态已变：<span class="rows">受影响行数='+(c.affectedRows!=null?c.affectedRows:'—')+'</span> → '+(c.ok?'HTTP 200 接单成功':'HTTP '+c.code+' '+esc(c.error||''))+'<code>'+esc(sql)+'</code>' },
+      { cls:'snap', html:'<b>T3 · 终态</b>　accepted_by='+esc(me.nickname)+'，只有一单成交。先查后改会双写翻车；条件更新把「判断+写入」钉死在同一条 SQL 里（本地完整版包在事务中，changes=0 即 409）。' }
+    ];
+    $('raceOut').innerHTML = '<div class="timeline">'+steps.map(function(s){ return '<div class="tstep '+s.cls+'">'+s.html+'</div>'; }).join('')+'</div>'
+      + '<div class="result info">演示视图：服务端无状态推演，不写公开库。本地完整版用同一条条件更新真实防并发（test_smoke 有并发断言）。</div>';
+  }).catch(function(e){ $('raceOut').innerHTML = '<div class="result bad">'+esc(e.message)+'</div>'; })
+    .finally(function(){ b.disabled = false; });
+});
+
+/* ---- 审核开/关对照 ---- */
+var cmpData = null, auditOn = true;
+function renderCompare(){
+  if (!cmpData) return;
+  var on = cmpData.on, off = cmpData.off;
+  var sw = $('auditSwitch');
+  sw.textContent = auditOn ? '审核：开' : '审核：关';
+  sw.classList.toggle('off', !auditOn);
+  sw.setAttribute('aria-checked', auditOn ? 'true' : 'false');
+  $('cmpState').textContent = auditOn ? '违规内容被拦截留痕' : '违规内容会混进榜单';
+  var sum = '<div class="cmp-sum">'
+    + '<span class="cmp-pill">审核开：进榜 <b>'+on.passedCount+'</b> 帖 · 拦截 <b>'+on.blocked.length+'</b></span>'
+    + '<span class="cmp-pill bad">审核关：进榜 <b>'+off.rows.length+'</b> 帖（含 '+off.rows.filter(function(p){return p.compare;}).length+' 条违规样本）</span>'
+    + '</div>';
+  var body;
+  if (auditOn) {
+    body = on.blocked.map(function(x){
+      return '<div class="post badpost"><div class="top"><h4>'+esc(x.title)+'</h4><span class="badge block">已拦截</span></div>'
+        + '<div class="content">'+esc(x.reason)+'</div>'
+        + evWrap(auditEvidenceHTML(x.content, x.hits, x.reason)) + '</div>';
+    }).join('');
+  } else {
+    body = '<div class="result bad">审核已关：下面 '+off.rows.filter(function(p){return p.compare;}).length+' 条违规对照样本会出现在榜单里（真实平台绝不允许）。</div>'
+      + off.rows.filter(function(p){ return p.compare; }).map(function(p){
+          return '<div class="post badpost"><div class="top"><h4>'+esc(p.title)+'</h4><span class="badge demo">违规对照样本</span></div>'
+            + '<div class="content">'+esc(p.content)+'</div>'
+            + evWrap(auditEvidenceHTML(p.content, (on.blocked.find(function(b){ return b.id===p.id; })||{}).hits, '审核关时此帖不被拦截')) + '</div>';
+        }).join('');
+  }
+  $('compareOut').innerHTML = sum + body
+    + '<p class="hint" style="margin-top:6px">对照样本为内置违规示例（id 99001+），与公开榜严格隔离；公开榜始终是只读种子。审核判定与本地 Audit 智能体同一张黑名单。</p>';
+}
+function loadCompare(){
+  Promise.all([ preview({ action:'board', audit:'on' }), preview({ action:'board', audit:'off' }) ]).then(function(rs){
+    if (!rs[0].ok || !rs[1].ok) { $('compareOut').innerHTML = '<div class="result bad">'+esc(rs[0].error||rs[1].error||'加载失败')+'</div>'; return; }
+    cmpData = { on: rs[0], off: rs[1] };
+    renderCompare();
+  }).catch(function(e){ $('compareOut').innerHTML = '<div class="result bad">'+esc(e.message)+'</div>'; });
+}
+$('auditSwitch').addEventListener('click', function(){ auditOn = !auditOn; renderCompare(); });
+
+/* ---- search ---- */
+function doSearch(){
+  var q = $('searchQ').value.trim();
+  $('searchErr').textContent = '';
+  if (!q) { $('searchErr').textContent = '先输入一句想找的内容'; return; }
+  preview({ action:'search', query: q, user: userPayload(), demoPosts: demoPayload() }).then(function(r){
+    if (!r.ok) { $('searchErr').textContent = r.error; return; }
+    $('searchKw').innerHTML = '<span class="hint">抽取关键词：</span>' + r.keywords.map(function(k){ return '<button class="on">'+esc(k)+'</button>'; }).join('');
+    $('searchList').innerHTML = r.results.length ? r.results.map(function(p){ return postCard(p, false); }).join('') : '<div class="empty">没有命中，换个说法试试</div>';
+  });
+}
+$('searchGo').addEventListener('click', doSearch);
+$('searchQ').addEventListener('keydown', function(e){ if(e.key==='Enter') doSearch(); });
+
+/* ---- match / publish ---- */
+function renderMe(){
+  $('meAva').textContent = me.nickname.slice(0,1);
+  $('meName').value = me.nickname;
+  $('meCredit').textContent = me.credit;
+  $('meCount').textContent = demoPosts.length;
+}
+$('meName').addEventListener('change', function(){
+  var v = $('meName').value.trim();
+  if (v) { me.nickname = v.slice(0,12); save(); renderMe(); }
+});
+function renderDraft(d){
+  var rows = [ ['标题', d.title], ['分类', d.category], ['报酬', d.reward||'（未提取到）'], ['联系方式', d.contact||'（未提取到）'], ['地点', d.location||'（未提取到）'], ['期望时间', d.expected_time||'（未提取到）'] ];
+  $('draftBox').innerHTML = '<div class="result info" style="margin-top:10px"><dl class="kv">'
+    + rows.map(function(r){ return '<dt>'+r[0]+'</dt><dd>'+esc(r[1])+'</dd>'; }).join('')
+    + '</dl>' + (d.missing.length ? '<div style="margin-top:6px">还需补充：'+esc(d.missing.join('、'))+'</div>' : '<div style="margin-top:6px">字段齐全，可以直接发布</div>') + '</div>';
+}
+$('guideGo').addEventListener('click', function(){
+  var t = $('postText').value.trim();
+  if (!t) { $('publishMsg').innerHTML = '<div class="result bad">先写一句求助</div>'; return; }
+  preview({ action:'guide', text: t }).then(function(r){
+    if (r.ok) { renderDraft(r.draft); $('publishMsg').innerHTML=''; }
+    else $('publishMsg').innerHTML = '<div class="result bad">'+esc(r.error)+'</div>';
+  });
+});
+$('publishGo').addEventListener('click', function(){
+  var t = $('postText').value.trim();
+  if (!t) { $('publishMsg').innerHTML = '<div class="result bad">先写一句求助</div>'; return; }
+  preview({ action:'publish', text: t, user: userPayload(), now: Date.now() }).then(function(r){
+    if (!r.ok) {
+      $('publishMsg').innerHTML = '<div class="result bad">审核拦截：'+esc(r.reason)+'</div>'
+        + (r.audit && r.audit.hits && r.audit.hits.length ? evWrap(auditEvidenceHTML(t, r.audit.hits, r.reason)) : '');
+      return;
+    }
+    demoPosts.push(Object.assign({}, r.post, { user_id: me.id, author: me.nickname, author_credit: me.credit })); save(); renderMe();
+    $('publishMsg').innerHTML = '<div class="result ok">已通过审核并存为演示帖（仅浏览器本地，不写公开库）。'+(r.post.missing.length?'缺字段：'+esc(r.post.missing.join('、'))+'，':'')+'点右侧「重算撮合排序」看它如何参与排序。</div>';
+    renderDraft(r.post);
+  });
+});
+$('clearDemo').addEventListener('click', function(){
+  demoPosts = []; save(); renderMe();
+  $('publishMsg').innerHTML = '<div class="result info">演示帖已清空</div>';
+  $('draftBox').innerHTML = '';
+});
+var matchView = 'me';
+document.querySelectorAll('#viewChips button').forEach(function(b){
+  b.addEventListener('click', function(){
+    matchView = b.dataset.view;
+    document.querySelectorAll('#viewChips button').forEach(function(x){ x.classList.toggle('on', x===b); });
+  });
+});
+$('matchGo').addEventListener('click', function(){
+  var viewer = matchView==='me' ? userPayload() : { id: me.id+1, nickname: '李四', credit: 100 };
+  preview({ action:'match', user: viewer, demoPosts: demoPayload(), limit: 8, now: Date.now() }).then(function(r){
+    if (!r.ok) { $('matchList').innerHTML = '<div class="result bad">'+esc(r.error)+'</div>'; return; }
+    $('matchList').innerHTML = r.results.map(matchCardHTML).join('');
+  });
+});
+
+/* ---- pipeline：5 阶段可视化，判据可展开 ---- */
+var INTENT_LABEL = { post:'想发帖', search:'想找帖', consult:'平台咨询', chat:'闲聊' };
+document.querySelectorAll('[data-eg]').forEach(function(b){
+  b.addEventListener('click', function(){ $('pipeText').value = b.dataset.eg; });
+});
+function stageSummary(i, a){
+  var v = a.verdict || {};
+  if (i===0) return '意图 = '+esc(v.intent||'—')+'（'+(INTENT_LABEL[v.intent]||'')+'）';
+  if (i===1) return '分类「'+esc(v.category||'—')+'」 · '+(v.missing && v.missing.length ? '缺 '+v.missing.length+' 个字段：'+esc(v.missing.join('、')) : '字段齐全');
+  if (i===2) return v.passed ? '放行：'+esc(v.reason||'') : '拦截：'+esc(v.reason||'');
+  if (i===3) return '关键词：'+esc((v.keywords||[]).join(' / ')||'—');
+  if (i===4) return (v.top && v.top.length) ? '推荐 top'+v.top.length+'：'+esc(v.top.map(function(t){ return t.title+'('+t.score+')'; }).join('、')) : '无候选（需要演示身份）';
+  return '';
+}
+function stageBadge(i, a){
+  var v = a.verdict || {};
+  if (i===2) return v.passed ? '<span class="badge pass">放行</span>' : '<span class="badge block">拦截</span>';
+  if (i===0) return '<span class="badge neutral">'+esc(INTENT_LABEL[v.intent]||v.intent||'')+'</span>';
+  if (i===1) return (v.missing && v.missing.length) ? '<span class="badge accepted">追问 '+v.missing.length+' 字段</span>' : '<span class="badge pass">字段齐全</span>';
+  if (i===3) return '<span class="badge neutral">'+(v.keywords||[]).length+' 关键词</span>';
+  if (i===4) return '<span class="badge neutral">top'+((v.top||[]).length)+'</span>';
+  return '';
+}
+$('pipeGo').addEventListener('click', function(){
+  var t = $('pipeText').value.trim();
+  $('pipeErr').textContent = '';
+  if (!t) { $('pipeErr').textContent = '先输入一句话'; return; }
+  preview({ action:'pipeline', text: t, user: userPayload(), demoPosts: demoPayload(), now: Date.now() }).then(function(r){
+    if (!r.ok) { $('pipeErr').textContent = r.error; return; }
+    $('pipeTrace').innerHTML = r.agents.map(function(a, i){
+      var blocked = i===2 && a.verdict && a.verdict.passed===false;
+      var evInner = '<div class="agent-basis">判据：'+esc(a.basis)+'</div><pre>'+esc(JSON.stringify(a.verdict, null, 2))+'</pre>';
+      if (i===2) evInner += auditEvidenceHTML(t, a.verdict.hits, a.verdict.reason);
+      return '<div class="stage'+(blocked?' blocked':'')+'"><span class="sno">'+(i+1)+'</span>'
+        + '<div class="shead"><h3>'+esc(a.name)+'</h3>'+stageBadge(i, a)+'</div>'
+        + '<div class="ssum">'+stageSummary(i, a)+'</div>'
+        + evWrap(evInner) + '</div>';
+    }).join('') + (r.publishable
+      ? '<div class="result ok">流水线结论：意图为发帖、审核通过、字段齐全 —— 本地完整版会在这一步直接落库发布。</div>'
+      : '<div class="result info">流水线结论：不满足「直接发布」条件（意图非发帖 / 审核拦截 / 字段缺失），对应智能体会追问或拦截。</div>');
+  });
+});
+
+/* ---- rules ---- */
+function loadRules(){
+  api('/api/rules').then(function(r){
+    $('creditRules').innerHTML = '<dl class="kv"><dt>初始信用</dt><dd>'+r.credit.initial+' 分</dd><dt>完成互助</dt><dd>接单人 +'+r.credit.completeHelper+'，发帖人 +'+r.credit.completeAuthor+'</dd><dt>完成数</dt><dd>接单人每完成一单 +1，达人榜按完成数、信用排序</dd></dl><p class="hint" style="margin-top:8px">'+esc(r.credit.note)+'</p>';
+    $('auditRule').textContent = r.audit;
+    $('agentList').innerHTML = r.agents.map(function(a){ return '<li><b>'+esc(a.name)+'</b>：'+esc(a.duty)+'</li>'; }).join('');
+    $('weightTable').innerHTML = '<tr><th>因子</th><th>权重</th><th>为什么</th></tr>' + r.matchWeights.map(function(w){ return '<tr><td>'+esc(w.factor)+'</td><td>'+esc(w.weight)+'</td><td>'+esc(w.why)+'</td></tr>'; }).join('');
+    $('localOnly').innerHTML = r.localOnly.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('');
+  });
+}
+
+/* ---- init ---- */
+renderMe(); renderChips();
+api('/api/stats').then(renderStats);
+loadBoard(); loadHelpers(); loadRules();
+quickMatch(); loadCompare();
+})();
+</script>
+</body>
+</html>
